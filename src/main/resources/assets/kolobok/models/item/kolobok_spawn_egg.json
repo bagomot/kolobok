@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "kolobok:item/kolobok_spawn_egg"
+  }
+}

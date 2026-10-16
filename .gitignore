@@ -1,0 +1,44 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
+
+# Stonecutter generates one subproject per build node; only the shared src/ is source of truth.
+versions/
+
+# Game run directories
+run/
+runs/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.eclipse/
+.settings/
+.classpath
+.project
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Decompiled vanilla sources, kept locally to check the 26.3 API. Never compiled, never shipped.
+.reference/
+
+# Working design documents, kept locally
+PLAN.md
+kolobok_plan.html
+
+# Local overrides and secrets
+.env
+local.properties
+*.local.gradle
+
+# Voice renderer's npm packages
+tools/voice/node_modules/

@@ -1,0 +1,15 @@
+{
+    "schemaVersion": 1,
+    "id": "kolobok-gametest",
+    "version": "1.0.0",
+    "name": "Kolobok client gametests",
+    "environment": "client",
+    "entrypoints": {
+        "fabric-client-gametest": [
+            "ru.bagomot.kolobok.gametest.KolobokVisualTest"
+        ]
+    },
+    "depends": {
+        "kolobok": "*"
+    }
+}

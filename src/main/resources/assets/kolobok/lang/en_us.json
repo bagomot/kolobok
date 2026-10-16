@@ -1,0 +1,58 @@
+{
+  "entity.kolobok.kolobok": "Kolobok",
+  "item.kolobok.kolobok_spawn_egg": "Kolobok Spawn Egg",
+  "itemGroup.kolobok": "The Tale of Kolobok",
+
+  "subtitles.kolobok.sing": "Kolobok sings",
+  "subtitles.kolobok.mumble": "Kolobok mumbles",
+
+  "kolobok.say.chat": "<%s> %s",
+
+  "kolobok.say.idle.0.0": "I'm not round, I'm aerodynamic.",
+  "kolobok.say.idle.0.1": "I'm not fat, I'm well-proofed.",
+  "kolobok.say.idle.0.2": "Bored... Maybe I'll run away from someone.",
+  "kolobok.say.idle.0.3": "Swept from the barn, scraped from the bin. Great résumé, if you ask me.",
+  "kolobok.say.idle.1.0": "Run, run, as fast as you can... Wrong tale. Different bread.",
+  "kolobok.say.idle.1.1": "My cousin is a gingerbread man. We don't talk about him.",
+  "kolobok.say.idle.2.0": "Who are you calling a breadwinner? I AM the bread.",
+  "kolobok.say.idle.2.1": "Loaf you too.",
+  "kolobok.say.idle.2.2": "It's not a bug, it's a crust.",
+  "kolobok.say.idle.3.0": "Roll, sing, escape, repeat. Sigma grindset.",
+  "kolobok.say.idle.3.1": "POV: you're a bun and everyone is hungry.",
+
+  "kolobok.say.night.0.0": "Good night. I'll keep watch. (I won't.)",
+  "kolobok.say.night.0.1": "The moon is my mom. Folklorists said so.",
+  "kolobok.say.night.2.0": "Low battery. Going into toast mode.",
+
+  "kolobok.say.food_wheat.0.0": "Wheat?! That's family! You're offering me my own relatives?",
+  "kolobok.say.food_bread.0.0": "Is that... cousin Baguette? I can't eat family!",
+  "kolobok.say.food_cake.0.0": "Auntie Sponge, is that you?!",
+  "kolobok.say.food_pumpkin_pie.0.0": "Pie?! We came out of the same oven!",
+  "kolobok.say.food_pumpkin_pie.2.0": "Pumpkin pie... Uncle, we thought you got eaten back in 2011.",
+  "kolobok.say.turtle.0.0": "That's not a helmet, that's someone's house.",
+
+  "kolobok.say.milk.0.0": "Sour cream! Mixed with it, healed with it.",
+  "kolobok.say.milk.0.1": "Ah, fresh! Hear that crust crunch?",
+  "kolobok.say.milk_untamed.0.0": "Tasty! I'll think about it. From a safe distance.",
+  "kolobok.say.milk_untamed.0.1": "Thanks for the snack. Still rolling away, though.",
+  "kolobok.say.tamed.0.0": "Fine. From you, I won't run away!",
+  "kolobok.say.tamed.0.1": "Deal: you're the oven, I'm the bun.",
+  "kolobok.say.full.0.0": "I'm fresh enough! Save the sour cream.",
+
+  "kolobok.say.sit.0.0": "Sitting. Not rolling.",
+  "kolobok.say.sit.0.1": "Staying put, like dough in a bowl.",
+  "kolobok.say.sit.2.0": "Waiting. Bread is patient.",
+  "kolobok.say.follow.0.0": "Rolling right behind you!",
+  "kolobok.say.follow.0.1": "Where you go, I go.",
+
+  "kolobok.say.shoulder.0.0": "Whoa, the view from up here!",
+  "kolobok.say.shoulder.2.0": "Eyes in the back of your head: online.",
+  "kolobok.say.head.0.0": "They say bread is the staff of life. Today I'm the hat of life.",
+  "kolobok.say.head.0.1": "A warm hat that talks. You're welcome.",
+  "kolobok.say.dismount.0.0": "Coming down. Careful, I'm fragile... Kidding, I'm brioche.",
+  "kolobok.say.dismount.0.1": "Right, rolling on my own.",
+
+  "kolobok.say.hurt.0.0": "Ow!",
+  "kolobok.say.hurt.0.1": "Hey, mind the crust!",
+  "kolobok.say.hurt.0.2": "I'm not a crouton!"
+}

@@ -1,0 +1,26 @@
+{
+    "schemaVersion": 1,
+    "id": "${mod_id}",
+    "version": "${mod_version}",
+    "name": "${mod_name}",
+    "description": "${mod_description}",
+    "authors": [
+        "${mod_author}"
+    ],
+    "license": "${mod_license}",
+    "environment": "*",
+    "entrypoints": {
+        "main": [
+            "ru.bagomot.kolobok.platform.fabric.KolobokFabric"
+        ],
+        "client": [
+            "ru.bagomot.kolobok.platform.fabric.KolobokFabricClient"
+        ]
+    },
+    "depends": {
+        "fabricloader": "${loader_range}",
+        "fabric-api": "*",
+        "minecraft": "${minecraft_range}",
+        "java": ">=${java_version}"
+    }
+}

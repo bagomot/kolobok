@@ -1,0 +1,590 @@
+{
+  "sing.ba": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ba"
+    ]
+  },
+  "sing.bo": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/bo"
+    ]
+  },
+  "sing.bu": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/bu"
+    ]
+  },
+  "sing.be": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/be"
+    ]
+  },
+  "sing.bi": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/bi"
+    ]
+  },
+  "sing.ma": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ma"
+    ]
+  },
+  "sing.mo": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/mo"
+    ]
+  },
+  "sing.mu": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/mu"
+    ]
+  },
+  "sing.me": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/me"
+    ]
+  },
+  "sing.mi": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/mi"
+    ]
+  },
+  "sing.la": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/la"
+    ]
+  },
+  "sing.lo": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/lo"
+    ]
+  },
+  "sing.lu": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/lu"
+    ]
+  },
+  "sing.le": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/le"
+    ]
+  },
+  "sing.li": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/li"
+    ]
+  },
+  "sing.ra": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ra"
+    ]
+  },
+  "sing.ro": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ro"
+    ]
+  },
+  "sing.ru": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ru"
+    ]
+  },
+  "sing.re": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/re"
+    ]
+  },
+  "sing.ri": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ri"
+    ]
+  },
+  "sing.da": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/da"
+    ]
+  },
+  "sing.do": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/do"
+    ]
+  },
+  "sing.du": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/du"
+    ]
+  },
+  "sing.de": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/de"
+    ]
+  },
+  "sing.di": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/di"
+    ]
+  },
+  "sing.ga": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ga"
+    ]
+  },
+  "sing.go": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/go"
+    ]
+  },
+  "sing.gu": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/gu"
+    ]
+  },
+  "sing.ge": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ge"
+    ]
+  },
+  "sing.gi": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/gi"
+    ]
+  },
+  "sing.sa": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/sa"
+    ]
+  },
+  "sing.so": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/so"
+    ]
+  },
+  "sing.su": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/su"
+    ]
+  },
+  "sing.se": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/se"
+    ]
+  },
+  "sing.si": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/si"
+    ]
+  },
+  "sing.sha": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/sha"
+    ]
+  },
+  "sing.sho": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/sho"
+    ]
+  },
+  "sing.shu": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/shu"
+    ]
+  },
+  "sing.she": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/she"
+    ]
+  },
+  "sing.shi": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/shi"
+    ]
+  },
+  "sing.ya": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ya"
+    ]
+  },
+  "sing.yo": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/yo"
+    ]
+  },
+  "sing.yu": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/yu"
+    ]
+  },
+  "sing.ye": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/ye"
+    ]
+  },
+  "sing.a": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/a"
+    ]
+  },
+  "sing.o": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/o"
+    ]
+  },
+  "sing.u": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/u"
+    ]
+  },
+  "sing.e": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/e"
+    ]
+  },
+  "sing.i": {
+    "subtitle": "subtitles.kolobok.sing",
+    "sounds": [
+      "kolobok:voice/i"
+    ]
+  },
+  "mumble.ba": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ba"
+    ]
+  },
+  "mumble.bo": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/bo"
+    ]
+  },
+  "mumble.bu": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/bu"
+    ]
+  },
+  "mumble.be": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/be"
+    ]
+  },
+  "mumble.bi": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/bi"
+    ]
+  },
+  "mumble.ma": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ma"
+    ]
+  },
+  "mumble.mo": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/mo"
+    ]
+  },
+  "mumble.mu": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/mu"
+    ]
+  },
+  "mumble.me": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/me"
+    ]
+  },
+  "mumble.mi": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/mi"
+    ]
+  },
+  "mumble.la": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/la"
+    ]
+  },
+  "mumble.lo": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/lo"
+    ]
+  },
+  "mumble.lu": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/lu"
+    ]
+  },
+  "mumble.le": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/le"
+    ]
+  },
+  "mumble.li": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/li"
+    ]
+  },
+  "mumble.ra": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ra"
+    ]
+  },
+  "mumble.ro": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ro"
+    ]
+  },
+  "mumble.ru": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ru"
+    ]
+  },
+  "mumble.re": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/re"
+    ]
+  },
+  "mumble.ri": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ri"
+    ]
+  },
+  "mumble.da": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/da"
+    ]
+  },
+  "mumble.do": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/do"
+    ]
+  },
+  "mumble.du": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/du"
+    ]
+  },
+  "mumble.de": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/de"
+    ]
+  },
+  "mumble.di": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/di"
+    ]
+  },
+  "mumble.ga": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ga"
+    ]
+  },
+  "mumble.go": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/go"
+    ]
+  },
+  "mumble.gu": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/gu"
+    ]
+  },
+  "mumble.ge": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ge"
+    ]
+  },
+  "mumble.gi": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/gi"
+    ]
+  },
+  "mumble.sa": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/sa"
+    ]
+  },
+  "mumble.so": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/so"
+    ]
+  },
+  "mumble.su": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/su"
+    ]
+  },
+  "mumble.se": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/se"
+    ]
+  },
+  "mumble.si": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/si"
+    ]
+  },
+  "mumble.sha": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/sha"
+    ]
+  },
+  "mumble.sho": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/sho"
+    ]
+  },
+  "mumble.shu": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/shu"
+    ]
+  },
+  "mumble.she": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/she"
+    ]
+  },
+  "mumble.shi": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/shi"
+    ]
+  },
+  "mumble.ya": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ya"
+    ]
+  },
+  "mumble.yo": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/yo"
+    ]
+  },
+  "mumble.yu": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/yu"
+    ]
+  },
+  "mumble.ye": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/ye"
+    ]
+  },
+  "mumble.a": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/a"
+    ]
+  },
+  "mumble.o": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/o"
+    ]
+  },
+  "mumble.u": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/u"
+    ]
+  },
+  "mumble.e": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/e"
+    ]
+  },
+  "mumble.i": {
+    "subtitle": "subtitles.kolobok.mumble",
+    "sounds": [
+      "kolobok:voice/i"
+    ]
+  }
+}

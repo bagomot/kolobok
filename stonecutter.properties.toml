@@ -1,0 +1,37 @@
+# Identity and per-target dependency versions.
+#
+# Build scripts flatten the section matching the current node with
+# `stonecutter.properties.tags(mcVersion, loader)`, so `[neoforge."26.3"] deps.neoforge`
+# is readable as the plain Gradle property `deps.neoforge` on that node.
+#
+# Versions checked against the NeoForged, Fabric and Mojang metadata on 16.10.2026.
+
+mod.id = "kolobok"
+mod.name = "Kolobok"
+mod.group = "ru.bagomot.kolobok"
+mod.version = "0.1.0"
+mod.license = "MIT"
+mod.author = "Bagomot"
+mod.description = "Колобок из русской сказки: печётся в русской печи, ходит за хозяином, поёт и уходит от всех. A bread pet from the Russian fairy tale."
+
+java.version = "25"
+
+deps.junit = "5.11.4"
+
+# ---------------------------------------------------------------- Fabric
+
+[fabric]
+deps.fabric_loader = "0.20.0"
+
+[fabric."26.3"]
+deps.minecraft = "26.3"
+deps.minecraft_range = ">=26.3 <26.4"
+deps.fabric_api = "0.162.0+26.3"
+
+# ---------------------------------------------------------------- NeoForge
+
+[neoforge."26.3"]
+deps.minecraft = "26.3"
+deps.minecraft_range = "[26.3,26.4)"
+deps.neoforge = "26.3.0.85"
+deps.neoforge_range = "[26.3.0,)"
