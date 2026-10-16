@@ -2,16 +2,22 @@ package ru.bagomot.kolobok.entity;
 
 import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.stats.Stats;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.DifficultyInstance;
@@ -19,13 +25,20 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.AgeableMob;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.goal.AvoidEntityGoal;
@@ -38,10 +51,13 @@ import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.SitWhenOrderedToGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.animal.fox.Fox;
+import net.minecraft.world.entity.monster.Witch;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.state.BlockState;
@@ -49,16 +65,22 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+
+import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.block.StovePart;
 import ru.bagomot.kolobok.block.StovePartBlock;
+import ru.bagomot.kolobok.block.StovePattern;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.song.Phonetics;
 import ru.bagomot.kolobok.entity.song.Song;
+import ru.bagomot.kolobok.entity.song.SongText;
 import ru.bagomot.kolobok.entity.song.Syllable;
 import ru.bagomot.kolobok.entity.song.Voice;
+import ru.bagomot.kolobok.item.SongbookItem;
 import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KSounds;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -106,6 +128,9 @@ public class KolobokEntity extends TamableAnimal {
     /** 0: the whole song; otherwise the one verse he sings, counted from 1. */
     private static final EntityDataAccessor<Byte> DATA_SING_PART =
             SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.BYTE);
+    /** Ids of the mobs he got away from, in that order, comma-separated: there is no list type. */
+    private static final EntityDataAccessor<String> DATA_VERSES =
+            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.STRING);
 
     public static final int FLAG_STALE = 1;
     public static final int FLAG_SOGGY = 1 << 1;
@@ -143,6 +168,26 @@ public class KolobokEntity extends TamableAnimal {
     private static final int SONG_GAP_MAX = 7200;
     /** In guard mode he walks back once he is this far from his post. */
     private static final double GUARD_RANGE = 3.0;
+    /** Herobrine sneaks into one night song in fifty. */
+    private static final float HEROBRINE_CHANCE = 0.02F;
+
+    /** After a «death» he lies on his stove for five minutes… */
+    private static final int REST_TICKS = 6000;
+    /** …or, with no stove to get to, is a pancake for a minute. */
+    private static final int PANCAKE_TICKS = 1200;
+    /** Mobs this close forget about a pancake. */
+    private static final double PANCAKE_FORGET_RANGE = 16.0;
+    /** A verse is earned by being alive half a minute after a mob's hit at most… */
+    private static final int VERSE_WINDOW = 600;
+    /** …and either this far from the mob… */
+    private static final double VERSE_DISTANCE = 16.0;
+    /** …or the mob not having gone for him this long. */
+    private static final int VERSE_LOST_TARGET = 100;
+    /** «Тут как тут»: left this far behind, he turns up next to his owner. */
+    private static final double ENDER_RANGE = 24.0;
+    /** «Бессонница»: phantoms come for a player who has not slept for three days. */
+    private static final int SLEEPLESS_TICKS = 72000;
+    private static final int PHANTOM_WARNING_GAP = 6000;
 
     /**
      * Client-side per-tick work: rolling, blinking, mumbling, steam. Installed by the client
@@ -197,6 +242,21 @@ public class KolobokEntity extends TamableAnimal {
     private int charmedTicks;
     private int nextSong;
 
+    /** RESTING or PANCAKE: ticks left. */
+    private int escapeTicks;
+    /** The last mob that hit him whose verse he does not have yet, and when. */
+    private @Nullable UUID attacker;
+    private @Nullable String attackerType;
+    private long attackerHit;
+    /** When that mob last had him as its target. */
+    private long attackerAimed;
+    /** A verse was earned: the whole song comes as soon as he can sing it. */
+    private boolean newVerseToSing;
+    private int nextPhantomWarning;
+    /** {@link #DATA_VERSES} parsed, and the string it was parsed from. */
+    private String versesRaw = "";
+    private List<String> verses = List.of();
+
     public KolobokEntity(EntityType<? extends KolobokEntity> type, Level level) {
         super(type, level);
         // Spread out, or every Kolobok loaded with the world speaks up on the same tick.
@@ -229,6 +289,7 @@ public class KolobokEntity extends TamableAnimal {
         entityData.define(DATA_SING_START, 0);
         entityData.define(DATA_SING_SEED, 0);
         entityData.define(DATA_SING_PART, (byte) 0);
+        entityData.define(DATA_VERSES, "");
     }
 
     @Override
@@ -317,6 +378,37 @@ public class KolobokEntity extends TamableAnimal {
         return listened.getOrDefault(player.getUUID(), 0);
     }
 
+    /**
+     * @return ids of the mobs he got away from, in the order he did
+     */
+    public List<String> verses() {
+        String raw = entityData.get(DATA_VERSES);
+        if (!raw.equals(versesRaw)) {
+            versesRaw = raw;
+            verses = SongText.parseVerses(raw);
+        }
+        return verses;
+    }
+
+    public boolean hasPerk(Perk perk) {
+        return verses().contains(perk.mob());
+    }
+
+    /**
+     * @return the mouth of the stove he was baked in, or {@code null}
+     */
+    public @Nullable BlockPos getHome() {
+        return home;
+    }
+
+    /**
+     * Makes that stove his home: he runs back to it when «killed».
+     */
+    public void setHome(BlockPos stove) {
+        home = stove.immutable();
+        homeDimension = level().dimension();
+    }
+
     // ------------------------------------------------------------------------------------ save
 
     private static final Codec<Map<UUID, Integer>> LISTENED_CODEC = Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.INT);
@@ -335,6 +427,8 @@ public class KolobokEntity extends TamableAnimal {
         output.storeNullable("GuardPost", BlockPos.CODEC, guardPost);
         output.store("Listened", LISTENED_CODEC, listened);
         output.putInt("NextVerse", nextVerse);
+        output.store("Verses", Codec.STRING.listOf(), verses());
+        output.putInt("EscapeTicks", escapeTicks);
     }
 
     @Override
@@ -357,6 +451,9 @@ public class KolobokEntity extends TamableAnimal {
         listened.clear();
         listened.putAll(input.read("Listened", LISTENED_CODEC).orElse(Map.of()));
         nextVerse = input.getIntOr("NextVerse", 1);
+        entityData.set(DATA_VERSES, SongText.joinVerses(input.read("Verses", Codec.STRING.listOf()).orElse(List.of())));
+        escapeTicks = input.getIntOr("EscapeTicks", 0);
+        applyPerks();
     }
 
     // ------------------------------------------------------------------------------------ spawning
@@ -384,8 +481,7 @@ public class KolobokEntity extends TamableAnimal {
         setFlag(FLAG_BURNT, burnt);
         setKState(KState.HOT);
         hotTicks = coolTicks;
-        home = stove.immutable();
-        homeDimension = level().dimension();
+        setHome(stove);
         yBodyRot = getYRot();
         yHeadRot = getYRot();
     }
@@ -468,19 +564,27 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * While hot, and while on a player, the whole AI step is skipped: nothing may move him. Hot, he
-     * lies on the hearth; on a player, the server places him itself every tick.
+     * While hot, resting, flat or on a player, the whole AI step is skipped: nothing may move him.
+     * Hot, he lies on the hearth; on a player, the server places him itself every tick.
      */
     @Override
     protected boolean isImmobile() {
-        KState state = getKState();
-        return state == KState.ON_PLAYER || state == KState.HOT || super.isImmobile();
+        return getKState() == KState.ON_PLAYER || isSheltered() || super.isImmobile();
     }
 
     /** Neither the world nor a push moves him: he is on a player or lying on the hearth. */
     private boolean isPinned() {
         KState state = getKState();
         return state == KState.ON_PLAYER || state == KState.HOT;
+    }
+
+    /**
+     * Hot on the hearth, resting on the stove or flat as a pancake: nothing but the void and
+     * {@code /kill} hurts him, and no mob sees him as a target.
+     */
+    public boolean isSheltered() {
+        KState state = getKState();
+        return state == KState.HOT || state == KState.RESTING || state == KState.PANCAKE;
     }
 
     // ------------------------------------------------------------------------------------ ticking
@@ -494,6 +598,8 @@ public class KolobokEntity extends TamableAnimal {
                 case ON_PLAYER -> carryTick();
                 case HOT -> hotTick();
                 case RUNAWAY -> chaseTick();
+                case RESTING -> restTick(serverLevel);
+                case PANCAKE -> pancakeTick(serverLevel);
                 default -> {
                 }
             }
@@ -503,6 +609,13 @@ public class KolobokEntity extends TamableAnimal {
             // A spinning head belongs to the chase; tamed mid-spin, he stops at once.
             if (getKState() != KState.RUNAWAY) {
                 dizzyTicks = 0;
+            }
+            if (tickCount % 20 == 0) {
+                verseTick(serverLevel);
+                perkTick(serverLevel);
+            }
+            if (newVerseToSing && !isSinging() && !isSheltered()) {
+                startSong(0, true);
             }
             songTick(serverLevel);
             idleSong();
@@ -516,8 +629,10 @@ public class KolobokEntity extends TamableAnimal {
     private void updateMood() {
         KState state = getKState();
         Mood mood;
-        if (state == KState.HOT) {
+        if (state == KState.HOT || state == KState.RESTING) {
             mood = Mood.SLEEP;
+        } else if (state == KState.PANCAKE) {
+            mood = Mood.DIZZY;
         } else if (isSinging()) {
             mood = Mood.SING;
         } else if (dizzyTicks > 0) {
@@ -543,7 +658,7 @@ public class KolobokEntity extends TamableAnimal {
         // The server talks at «radio» rate; each client keeps as much of it as its chattiness setting
         // asks for. Event lines are never filtered.
         nextIdleChatter = 600 + random.nextInt(1200);
-        if (getMood() == Mood.SLEEP || isSinging() || getKState() == KState.HOT) {
+        if (getMood() == Mood.SLEEP || isSinging() || isSheltered()) {
             return;
         }
         say(getKState() == KState.SIT && level().isDarkOutside() ? "night" : "idle");
@@ -643,7 +758,7 @@ public class KolobokEntity extends TamableAnimal {
             return;
         }
         nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
-        if (!isSinging() && getMood() != Mood.SLEEP) {
+        if (!isSinging() && getMood() != Mood.SLEEP && !isSheltered()) {
             startSong(0);
         }
     }
@@ -652,11 +767,25 @@ public class KolobokEntity extends TamableAnimal {
      * @param part 0 for the whole song, otherwise the verse to sing
      */
     public void startSong(int part) {
+        startSong(part, false);
+    }
+
+    /**
+     * @param part     0 for the whole song, otherwise the verse to sing
+     * @param newVerse whether he sings to show off the verse just earned, which is then always
+     *                 among the three mobs
+     */
+    public void startSong(int part, boolean newVerse) {
         if (level().isClientSide()) {
             return;
         }
         int now = Math.max(1, (int) level().getGameTime());
         int seed = random.nextInt();
+        if (newVerse) {
+            newVerseToSing = false;
+        }
+        setFlag(FLAG_SING_NEW, newVerse);
+        setFlag(FLAG_SING_HEROBRINE, level().isDarkOutside() && random.nextFloat() < HEROBRINE_CHANCE);
         entityData.set(DATA_SING_SEED, seed);
         entityData.set(DATA_SING_PART, (byte) part);
         entityData.set(DATA_SING_START, now);
@@ -673,15 +802,24 @@ public class KolobokEntity extends TamableAnimal {
      * same one.
      */
     public Song composeSong() {
-        return Song.compose(entityData.get(DATA_SING_SEED), entityData.get(DATA_SING_PART), List.of(), null,
+        List<String> verses = verses();
+        String newest = hasFlag(FLAG_SING_NEW) && !verses.isEmpty() ? verses.getLast() : null;
+        return Song.compose(entityData.get(DATA_SING_SEED), entityData.get(DATA_SING_PART), verses, newest,
                 hasFlag(FLAG_SING_HEROBRINE), songVoice());
     }
 
     /**
-     * @return his manner of singing; the pitch is {@link #voice()}
+     * @return his manner of singing; the pitch is {@link #voice()}. The strongest character wins:
+     *         Колобочек, then soggy, then stale (outfits come before all of them)
      */
     public Voice songVoice() {
-        return getVariant() == Variant.MINI ? Voice.MINI : Voice.NORMAL;
+        if (getVariant() == Variant.MINI) {
+            return Voice.MINI;
+        }
+        if (hasFlag(FLAG_SOGGY)) {
+            return Voice.SOGGY;
+        }
+        return hasFlag(FLAG_STALE) ? Voice.STALE : Voice.NORMAL;
     }
 
     private void stopSong() {
@@ -737,6 +875,316 @@ public class KolobokEntity extends TamableAnimal {
         level.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 0.6, getZ(), 8, 0.3, 0.3, 0.3, 0.0);
         charmedTicks = CHARMED_TICKS;
         say("listened");
+    }
+
+    // ------------------------------------------------------------------------------------ «doesn't die»
+
+    /**
+     * He never dies: «killed», he gets away to his stove, or, with none to get to, goes flat for a
+     * minute. Only what bypasses invulnerability ({@code /kill}, the void) is a real death.
+     */
+    @Override
+    public void die(DamageSource source) {
+        if (level() instanceof ServerLevel serverLevel && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            setHealth(1.0F);
+            escape(serverLevel);
+            return;
+        }
+        super.die(source);
+    }
+
+    private void escape(ServerLevel level) {
+        level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.3, getZ(), 12, 0.25, 0.25, 0.25, 0.02);
+        stopSong();
+        if (getKState() == KState.ON_PLAYER) {
+            getOffPlayer(false);
+        }
+        stopRiding();
+        getNavigation().stop();
+        dizzyTicks = 0;
+        charmedTicks = 0;
+        // Whatever was killing him stays behind: no withering on the stove.
+        removeAllEffects();
+        clearFire();
+        setDeltaMovement(Vec3.ZERO);
+        resetFallDistance();
+
+        Direction stove = homeStove(level);
+        Vec3 bench = stove == null ? null : StovePattern.bench(home, stove);
+        if (bench != null && level.noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(bench))) {
+            teleportTo(bench.x, bench.y, bench.z);
+            float yaw = stove.toYRot();
+            setYRot(yaw);
+            yBodyRot = yaw;
+            yHeadRot = yaw;
+            setKState(KState.RESTING);
+            escapeTicks = REST_TICKS;
+            addEffect(new MobEffectInstance(MobEffects.REGENERATION, 600, 0));
+            level.sendParticles(ParticleTypes.POOF, bench.x, bench.y + 0.3, bench.z, 12, 0.25, 0.25, 0.25, 0.02);
+            say("rest");
+        } else {
+            setKState(KState.PANCAKE);
+            escapeTicks = PANCAKE_TICKS;
+            // Flattened is not «got away»: no verse for whoever did it.
+            forgetAttacker();
+            loseTargets(level);
+            say("pancake");
+        }
+    }
+
+    /**
+     * @return the facing of his home stove, if it stands whole in this dimension and is loaded
+     */
+    private @Nullable Direction homeStove(ServerLevel level) {
+        if (home == null || !level.dimension().equals(homeDimension) || !level.isLoaded(home)) {
+            return null;
+        }
+        BlockState state = level.getBlockState(home);
+        if (!(state.getBlock() instanceof StovePartBlock) || state.getValue(StovePartBlock.PART) != StovePart.MOUTH) {
+            return null;
+        }
+        Direction facing = state.getValue(StovePartBlock.FACING);
+        for (StovePart part : StovePart.values()) {
+            if (!level.isLoaded(StovePattern.posOf(home, facing, part))) {
+                return null;
+            }
+        }
+        return StovePattern.isIntact(level, home, facing) ? facing : null;
+    }
+
+    private void restTick(ServerLevel level) {
+        boolean stoveGone = tickCount % 20 == 0 && homeStove(level) == null;
+        if (--escapeTicks <= 0 || stoveGone) {
+            wake("rested");
+        }
+    }
+
+    private void pancakeTick(ServerLevel level) {
+        if (tickCount % 20 == 0) {
+            loseTargets(level);
+        }
+        if (--escapeTicks <= 0) {
+            wake("unflat");
+        }
+    }
+
+    /**
+     * Up from the stove or puffed back into shape: tamed, he follows again; untamed, the chase
+     * starts over.
+     */
+    private void wake(String line) {
+        escapeTicks = 0;
+        if (isTame()) {
+            setKState(KState.FOLLOW);
+        } else {
+            setKState(KState.RUNAWAY);
+            chaseTicks = CHASE_STOP_TICKS - FIRST_STOP_TICKS;
+        }
+        say(line);
+    }
+
+    private void loseTargets(ServerLevel level) {
+        for (Mob mob : level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(PANCAKE_FORGET_RANGE),
+                mob -> mob.getTarget() == this)) {
+            mob.setTarget(null);
+        }
+    }
+
+    @Override
+    public boolean canBeSeenAsEnemy() {
+        return !isSheltered() && super.canBeSeenAsEnemy();
+    }
+
+    @Override
+    public boolean ignoreExplosion(Explosion explosion) {
+        return isSheltered() || hasPerk(Perk.CREEPER) || super.ignoreExplosion(explosion);
+    }
+
+    // ------------------------------------------------------------------------------------ verses
+
+    /**
+     * A mob hit him and he has no verse about it yet: if he gets away, he will have.
+     */
+    private void noteAttacker(ServerLevel level, DamageSource source) {
+        if (!(source.getEntity() instanceof Mob mob) || mob instanceof Fox || mob instanceof KolobokEntity) {
+            return;
+        }
+        String type = EntityType.getKey(mob.getType()).toString();
+        if (verses().contains(type)) {
+            return;
+        }
+        attacker = mob.getUUID();
+        attackerType = type;
+        attackerHit = level.getGameTime();
+        attackerAimed = attackerHit;
+    }
+
+    private void forgetAttacker() {
+        attacker = null;
+        attackerType = null;
+    }
+
+    /**
+     * Got away: within half a minute of the hit he is alive and the mob is gone, sixteen blocks off,
+     * or has not gone for him for five seconds. Checked once a second.
+     */
+    private void verseTick(ServerLevel level) {
+        if (attacker == null || attackerType == null) {
+            return;
+        }
+        long now = level.getGameTime();
+        if (now - attackerHit > VERSE_WINDOW) {
+            forgetAttacker();
+            return;
+        }
+        boolean away;
+        if (!(level.getEntity(attacker) instanceof Mob mob) || !mob.isAlive()) {
+            away = true;
+        } else {
+            if (mob.getTarget() == this) {
+                attackerAimed = now;
+            }
+            away = mob.distanceToSqr(this) >= VERSE_DISTANCE * VERSE_DISTANCE || now - attackerAimed >= VERSE_LOST_TARGET;
+        }
+        if (away) {
+            String type = attackerType;
+            forgetAttacker();
+            learnVerse(type);
+        }
+    }
+
+    /**
+     * Adds a verse about that mob to his song, with its perk if it has one, and tells the owner. He
+     * sings the whole song with it as soon as he can.
+     *
+     * @return whether the verse is new
+     */
+    public boolean learnVerse(String mob) {
+        if (level().isClientSide() || SongText.HEROBRINE.equals(mob) || verses().contains(mob)) {
+            return false;
+        }
+        List<String> next = new ArrayList<>(verses());
+        next.add(mob);
+        entityData.set(DATA_VERSES, SongText.joinVerses(next));
+        float health = getMaxHealth();
+        applyPerks();
+        if (getMaxHealth() > health) {
+            heal(getMaxHealth() - health);
+        }
+        newVerseToSing = true;
+        if (getOwner() instanceof ServerPlayer owner) {
+            String key = SongText.knows(mob) ? "kolobok.verse.learned" : "kolobok.verse.learned_unknown";
+            owner.sendSystemMessage(Component.translatable(key, getDisplayName(), SongWords.mob(mob)));
+            Perk perk = Perk.forMob(mob);
+            if (perk != null) {
+                owner.sendSystemMessage(Component.translatable("kolobok.verse.perk",
+                        Component.translatable(perk.key()), Component.translatable(perk.key() + ".desc")));
+            }
+        }
+        return true;
+    }
+
+    // ------------------------------------------------------------------------------------ perks
+
+    /**
+     * The perks that are attribute modifiers, added or removed to match his verses. Safe to call
+     * again: a modifier already there is left alone.
+     */
+    private void applyPerks() {
+        perkModifier(Perk.RABBIT, Attributes.MOVEMENT_SPEED, 0.1, AttributeModifier.Operation.ADD_MULTIPLIED_BASE);
+        perkModifier(Perk.POLAR_BEAR, Attributes.MAX_HEALTH, 4.0, AttributeModifier.Operation.ADD_VALUE);
+        perkModifier(Perk.ZOMBIE, Attributes.ARMOR, 2.0, AttributeModifier.Operation.ADD_VALUE);
+        perkModifier(Perk.RAVAGER, Attributes.KNOCKBACK_RESISTANCE, 1.0, AttributeModifier.Operation.ADD_VALUE);
+    }
+
+    private void perkModifier(Perk perk, Holder<Attribute> attribute, double amount, AttributeModifier.Operation operation) {
+        AttributeInstance instance = getAttribute(attribute);
+        if (instance == null) {
+            return;
+        }
+        Identifier id = Kolobok.id("verse/" + perk.path());
+        if (!hasPerk(perk)) {
+            instance.removeModifier(id);
+        } else if (!instance.hasModifier(id)) {
+            instance.addPermanentModifier(new AttributeModifier(id, amount, operation));
+        }
+    }
+
+    /**
+     * The perks that act on their own, once a second: «Тут как тут» and «Бессонница».
+     */
+    private void perkTick(ServerLevel level) {
+        if (!(getOwner() instanceof ServerPlayer owner) || owner.level() != level) {
+            return;
+        }
+        KState state = getKState();
+        if (hasPerk(Perk.ENDERMAN) && (state == KState.FOLLOW || state == KState.WANDER)
+                && distanceToSqr(owner) > ENDER_RANGE * ENDER_RANGE) {
+            Vec3 from = position();
+            tryToTeleportToOwner();
+            if (!position().equals(from)) {
+                level.sendParticles(ParticleTypes.PORTAL, from.x, from.y + 0.3, from.z, 16, 0.3, 0.3, 0.3, 0.1);
+                level.playSound(null, getX(), getY(), getZ(), SoundEvents.CHORUS_FRUIT_TELEPORT, getSoundSource(),
+                        0.6F, 1.2F);
+            }
+        }
+        if (hasPerk(Perk.PHANTOM) && tickCount >= nextPhantomWarning && level.isDarkOutside()
+                && distanceToSqr(owner) < 16.0 * 16.0
+                && owner.getStats().getValue(Stats.CUSTOM.get(Stats.TIME_SINCE_REST)) >= SLEEPLESS_TICKS) {
+            nextPhantomWarning = tickCount + PHANTOM_WARNING_GAP;
+            say("phantoms");
+        }
+    }
+
+    /**
+     * @return whether a perk turns that damage away entirely
+     */
+    private boolean wardedOff(DamageSource source) {
+        if (source.is(DamageTypeTags.IS_EXPLOSION) && hasPerk(Perk.CREEPER)) {
+            return true;
+        }
+        if (source.is(DamageTypeTags.IS_FIRE) && hasPerk(Perk.BLAZE)) {
+            return true;
+        }
+        if (source.is(DamageTypes.WITHER) && hasPerk(Perk.WITHER)) {
+            return true;
+        }
+        if (source.getEntity() instanceof Witch && hasPerk(Perk.WITCH)
+                && (source.is(DamageTypes.MAGIC) || source.is(DamageTypes.INDIRECT_MAGIC))) {
+            return true;
+        }
+        // «Сухарь»: every other arrow bounces off the crust.
+        return source.is(DamageTypeTags.IS_PROJECTILE) && hasPerk(Perk.SKELETON) && random.nextBoolean();
+    }
+
+    @Override
+    public boolean fireImmune() {
+        return hasPerk(Perk.BLAZE) || super.fireImmune();
+    }
+
+    /**
+     * «Кощеева закалка»: withering never takes; «Не та бабка»: a witch's splash potions do nothing.
+     * Checked here rather than in {@code canBeAffected}, which NeoForge deprecates.
+     */
+    @Override
+    public boolean addEffect(MobEffectInstance effect, @Nullable Entity source) {
+        if (effect.is(MobEffects.WITHER) && hasPerk(Perk.WITHER) || source instanceof Witch && hasPerk(Perk.WITCH)) {
+            return false;
+        }
+        return super.addEffect(effect, source);
+    }
+
+    /**
+     * «Липкое тесто»: like a spider, he climbs whatever wall he rolls into.
+     */
+    @Override
+    public boolean onClimbable() {
+        return super.onClimbable() || hasPerk(Perk.SPIDER) && horizontalCollision && !isPinned();
+    }
+
+    @Override
+    public boolean dampensVibrations() {
+        return hasPerk(Perk.WARDEN) || super.dampensVibrations();
     }
 
     // ------------------------------------------------------------------------------------ shoulder and head
@@ -841,7 +1289,7 @@ public class KolobokEntity extends TamableAnimal {
 
     @Override
     public boolean isPushable() {
-        return !isPinned() && super.isPushable();
+        return !isPinned() && !isSheltered() && super.isPushable();
     }
 
     /**
@@ -901,6 +1349,25 @@ public class KolobokEntity extends TamableAnimal {
         if (getKState() == KState.HOT) {
             burn(player);
             return InteractionResult.SUCCESS;
+        }
+        if (getKState() == KState.PANCAKE) {
+            if (!level().isClientSide()) {
+                say("pancake");
+            }
+            return InteractionResult.SUCCESS;
+        }
+        if (getKState() == KState.RESTING && stack.isEmpty() && owner) {
+            if (!level().isClientSide()) {
+                wake("woken");
+            }
+            return InteractionResult.SUCCESS;
+        }
+        if (stack.is(KItems.SONGBOOK.get())) {
+            return writeSongbook(stack, owner);
+        }
+        // On the stove he only takes milk.
+        if (getKState() == KState.RESTING && !stack.is(Items.MILK_BUCKET)) {
+            return InteractionResult.PASS;
         }
         if (stack.isEmpty() && owner && player.isShiftKeyDown()) {
             if (!level().isClientSide()) {
@@ -975,6 +1442,24 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
+     * Writes his song, perks and home into the owner's songbook. The real stack in hand is written,
+     * so this works in creative mode too.
+     */
+    private InteractionResult writeSongbook(ItemStack stack, boolean owner) {
+        if (level().isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!owner) {
+            say("songbook_stranger");
+            return InteractionResult.SUCCESS;
+        }
+        SongbookItem.write(stack, this);
+        level().playSound(null, getX(), getY(), getZ(), SoundEvents.BOOK_PAGE_TURN, SoundSource.PLAYERS, 1.0F, 1.0F);
+        say("songbook");
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
      * @return the chance that milk tames him after that many songs listened to
      */
     public static float tameChance(int songs) {
@@ -1012,20 +1497,28 @@ public class KolobokEntity extends TamableAnimal {
                 && (source.is(DamageTypes.IN_WALL) || source.is(DamageTypeTags.IS_FALL))) {
             return false;
         }
+        boolean bypass = source.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
         // Fresh from the oven nothing hurts him, and whoever hits him burns a hand.
-        if (getKState() == KState.HOT && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+        if (getKState() == KState.HOT && !bypass) {
             if (source.getDirectEntity() instanceof Player player) {
                 burn(player);
             }
             return false;
         }
+        if (!bypass && (isSheltered() || wardedOff(source))) {
+            return false;
+        }
         boolean hurt = super.hurtServer(level, source, damage);
-        if (hurt && isSinging()) {
+        // Having got away (see die), he has said his line already.
+        if (!hurt || isSheltered() || !isAlive()) {
+            return hurt;
+        }
+        if (isSinging()) {
             stopSong();
         }
+        noteAttacker(level, source);
         // Fire or a cactus hurt him every few ticks; one «Ой!» per two seconds is plenty.
-        boolean quiet = (int) level.getGameTime() >= getSayUntil() - SAY_TICKS + HURT_LINE_GAP;
-        if (hurt && isAlive() && quiet) {
+        if ((int) level.getGameTime() >= getSayUntil() - SAY_TICKS + HURT_LINE_GAP) {
             say("hurt");
         }
         return hurt;

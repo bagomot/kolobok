@@ -169,6 +169,16 @@ public final class StovePattern {
     }
 
     /**
+     * @return the лежанка, where a «killed» Kolobok rests: the middle of the stove's top, between
+     *         the front and back rows
+     */
+    public static Vec3 bench(BlockPos mouth, Direction facing) {
+        Direction back = facing.getOpposite();
+        return new Vec3(mouth.getX() + 0.5 + back.getStepX() * 0.5, mouth.getY() + 2,
+                mouth.getZ() + 0.5 + back.getStepZ() * 0.5);
+    }
+
+    /**
      * @return the middle of the chimney's top, where the smoke comes out
      */
     public static Vec3 chimneyTop(BlockPos mouth, Direction facing) {

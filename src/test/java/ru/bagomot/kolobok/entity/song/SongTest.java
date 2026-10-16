@@ -142,6 +142,50 @@ class SongTest {
         }
     }
 
+    @Test
+    void everyMobTheSongKnowsFitsTheBarInEachOfTheThreePlaces() {
+        for (String mob : SongText.knownMobs()) {
+            List<SongLine> book = SongText.book(List.of(mob, mob, mob));
+            List<Melody.Line> lines = Melody.timeline(book, false);
+            for (Melody.Line line : lines.subList(8, 11)) {
+                Melody.Note last = line.notes().getLast();
+                assertEquals(line.downbeat() + 4, last.start(), 1e-9, "too long for one bar: " + line.text().sung());
+            }
+        }
+    }
+
+    @Test
+    void aMobFromAnotherModIsSungByItsIdAndShownInQuotes() {
+        List<SongLine> lines = SongText.lines(1, List.of("minecraft:zombie", "othermod:mud_crab"), null, false);
+        assertEquals("kolobok.song.from.0", lines.get(8).subtitle());
+        assertEquals("kolobok.song.from.unknown", lines.get(9).subtitle());
+        assertEquals("Я от mud crab ушё'л,", lines.get(9).sung());
+        assertEquals("othermod:mud_crab", lines.get(9).mob());
+    }
+
+    @Test
+    void theSongbookHasEveryMobAndNeverHerobrine() {
+        List<SongLine> book = SongText.book(MOBS);
+        assertEquals(8 + MOBS.size() + 1, book.size());
+        assertEquals(MOBS, book.stream().map(SongLine::mob).filter(m -> m != null).toList());
+        assertEquals(List.of("kolobok.song.from.0", "kolobok.song.from.1", "kolobok.song.from.0", "kolobok.song.from.1",
+                        "kolobok.song.from.2"),
+                book.subList(8, 13).stream().map(SongLine::subtitle).toList());
+        assertTrue(book.stream().noneMatch(l -> l.subtitle().equals("kolobok.song.herobrine")));
+        assertEquals("И от тебя' уйду'!", book.getLast().sung());
+        // Up to three mobs the book is the song as he sings it.
+        List<String> three = MOBS.subList(0, 3);
+        assertEquals(SongText.lines(4, three, null, false), SongText.book(three));
+        assertEquals(SongText.lines(4, List.of(), null, false), SongText.book(List.of()));
+    }
+
+    @Test
+    void theVerseListSurvivesSyncedData() {
+        assertEquals(List.of(), SongText.parseVerses(""));
+        assertEquals(MOBS, SongText.parseVerses(SongText.joinVerses(MOBS)));
+        assertEquals(List.of("minecraft:wolf", "minecraft:rabbit"), SongText.parseVerses("minecraft:wolf,,minecraft:rabbit,minecraft:wolf"));
+    }
+
     private static String mobLines(int seed, String newest, boolean herobrine) {
         return SongText.lines(seed, MOBS, newest, herobrine).stream()
                 .filter(l -> l.mob() != null || l.subtitle().equals("kolobok.song.herobrine"))

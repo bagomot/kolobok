@@ -94,7 +94,8 @@ public class StoveBlockEntity extends BlockEntity {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        if (level.getGameTime() % 20 == 0 && !StovePattern.isIntact(level, pos, stove.facing())) {
+        // Once a second, and on the tick the fire goes out: a cold stove has no ticker to notice later.
+        if ((level.getGameTime() % 20 == 0 || stove.fuel <= 1) && !StovePattern.isIntact(level, pos, stove.facing())) {
             StovePattern.disassembleDamaged(serverLevel, pos, state);
             return;
         }

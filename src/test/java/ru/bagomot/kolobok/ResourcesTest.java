@@ -4,6 +4,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 import ru.bagomot.kolobok.block.StovePart;
+import ru.bagomot.kolobok.entity.Perk;
+import ru.bagomot.kolobok.entity.Variant;
 import ru.bagomot.kolobok.entity.song.SongLine;
 import ru.bagomot.kolobok.entity.song.SongText;
 import ru.bagomot.kolobok.entity.song.Syllable;
@@ -100,6 +102,43 @@ class ResourcesTest {
                 assertTrue(en.has(key), "en_us lacks " + key);
             }
         }
+    }
+
+    @Test
+    void everyMobTheSongKnowsAndEveryPerkIsNamedInBothLanguages() throws IOException {
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        for (String mob : SongText.knownMobs()) {
+            String key = "kolobok.verse." + mob.replace(':', '.');
+            assertTrue(ru.has(key) && en.has(key), key);
+        }
+        for (Perk perk : Perk.values()) {
+            assertTrue(SongText.knows(perk.mob()), "a perk the song cannot sing about: " + perk);
+            assertEquals(perk, Perk.forMob(perk.mob()));
+            for (String key : List.of(perk.key(), perk.key() + ".desc")) {
+                assertTrue(ru.has(key) && en.has(key), key);
+            }
+        }
+        for (Variant variant : Variant.values()) {
+            String key = "kolobok.variant." + variant.serializedName();
+            assertTrue(ru.has(key) && en.has(key), key);
+        }
+        for (String key : ru.keySet()) {
+            if (key.startsWith("kolobok.perk.") || key.startsWith("kolobok.songbook.") || key.startsWith("kolobok.variant.")) {
+                assertTrue(en.has(key), "en_us lacks " + key);
+            }
+        }
+    }
+
+    @Test
+    void theSongbookHasItsModelTextureAndRecipe() throws IOException {
+        json("assets/kolobok/items/songbook.json");
+        json("assets/kolobok/models/item/songbook.json");
+        try (InputStream png = resource("assets/kolobok/textures/item/songbook.png")) {
+            assertNotNull(png);
+        }
+        json("data/kolobok/recipe/songbook.json");
+        json("data/kolobok/advancement/recipes/misc/songbook.json");
     }
 
     @Test

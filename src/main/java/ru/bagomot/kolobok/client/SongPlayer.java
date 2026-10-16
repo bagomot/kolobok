@@ -2,14 +2,12 @@ package ru.bagomot.kolobok.client;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KolobokEntity;
+import ru.bagomot.kolobok.entity.SongWords;
 import ru.bagomot.kolobok.entity.song.Song;
 import ru.bagomot.kolobok.entity.song.SongLine;
 import ru.bagomot.kolobok.registry.KSounds;
@@ -113,18 +111,6 @@ public final class SongPlayer {
      * The line in the player's language for the bubble. The song itself is Russian everywhere.
      */
     static Component subtitle(SongLine line) {
-        Component text;
-        if (line.mob() == null) {
-            text = Component.translatable(line.subtitle());
-        } else {
-            Identifier id = Identifier.parse(line.mob());
-            String key = "kolobok.verse." + id.getNamespace() + "." + id.getPath();
-            Component mob = Language.getInstance().has(key)
-                    ? Component.translatable(key)
-                    : BuiltInRegistries.ENTITY_TYPE.getOptional(id).map(type -> type.getDescription())
-                    .orElse(Component.literal(id.getPath()));
-            text = Component.translatable(line.subtitle(), mob);
-        }
-        return Component.literal("♪ ").append(text);
+        return Component.literal("♪ ").append(SongWords.line(line));
     }
 }

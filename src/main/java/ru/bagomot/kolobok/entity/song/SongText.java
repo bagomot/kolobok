@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The words of the song: a children's song of three verses of four lines.
@@ -43,7 +44,10 @@ public final class SongText {
     private static final String HEROBRINE_SUNG = "Я и от Херобри'на ушё'л,";
     private static final SongLine FINALE = new SongLine("И от тебя' уйду'!", Template.END, false, "kolobok.song.end");
 
-    /** Genitive, stressed, of the vanilla mobs a verse can be about. */
+    /**
+     * Genitive, stressed, of the vanilla mobs a verse can be about: every mob that may hurt him. A
+     * few are named the folk way rather than as the game names them: the witch is Баба-Яга.
+     */
     private static final Map<String, String> GENITIVE = Map.ofEntries(
             Map.entry("minecraft:rabbit", "за'йца"),
             Map.entry("minecraft:wolf", "во'лка"),
@@ -60,7 +64,50 @@ public final class SongText {
             Map.entry("minecraft:blaze", "ифри'та"),
             Map.entry("minecraft:warden", "Храни'теля"),
             Map.entry("minecraft:wither", "Иссуши'теля"),
-            Map.entry("minecraft:ender_dragon", "драко'на"));
+            Map.entry("minecraft:ender_dragon", "драко'на"),
+            // The undead and the cave dwellers.
+            Map.entry("minecraft:husk", "када'вра"),
+            Map.entry("minecraft:stray", "зимого'ра"),
+            Map.entry("minecraft:bogged", "боло'тника"),
+            Map.entry("minecraft:parched", "пусты'нника"),
+            Map.entry("minecraft:zombie_villager", "крестья'нина-зо'мби"),
+            Map.entry("minecraft:wither_skeleton", "скеле'та-иссуши'теля"),
+            Map.entry("minecraft:camel_husk", "верблю'да-када'вра"),
+            Map.entry("minecraft:zombie_nautilus", "наути'луса-зо'мби"),
+            Map.entry("minecraft:cave_spider", "пеще'рного паука'"),
+            Map.entry("minecraft:silverfish", "чешу'йницы"),
+            Map.entry("minecraft:slime", "сли'зня"),
+            Map.entry("minecraft:magma_cube", "ма'гмового ку'ба"),
+            // Illagers.
+            Map.entry("minecraft:pillager", "разбо'йника"),
+            Map.entry("minecraft:vindicator", "побо'рника"),
+            Map.entry("minecraft:evoker", "заклина'теля"),
+            Map.entry("minecraft:illusioner", "иллюзо'ра"),
+            Map.entry("minecraft:vex", "вреди'ны"),
+            // The Nether.
+            Map.entry("minecraft:piglin", "пи'глина"),
+            Map.entry("minecraft:piglin_brute", "брута'льного пи'глина"),
+            Map.entry("minecraft:zombified_piglin", "зо'мби-пи'глина"),
+            Map.entry("minecraft:hoglin", "хо'глина"),
+            Map.entry("minecraft:zoglin", "зо'глина"),
+            Map.entry("minecraft:ghast", "га'ста"),
+            // The sea, the End and the rest.
+            Map.entry("minecraft:guardian", "стра'жа"),
+            Map.entry("minecraft:elder_guardian", "дре'внего стра'жа"),
+            Map.entry("minecraft:pufferfish", "иглобрю'ха"),
+            Map.entry("minecraft:shulker", "ша'лкера"),
+            Map.entry("minecraft:endermite", "эндерми'та"),
+            Map.entry("minecraft:breeze", "ви'хря"),
+            Map.entry("minecraft:creaking", "скрипуна'"),
+            // Neutral ones, when provoked.
+            Map.entry("minecraft:bee", "пчелы'"),
+            Map.entry("minecraft:iron_golem", "желе'зного го'лема"),
+            Map.entry("minecraft:snow_golem", "снегови'ка"),
+            Map.entry("minecraft:llama", "ла'мы"),
+            Map.entry("minecraft:trader_llama", "ла'мы торго'вца"),
+            Map.entry("minecraft:goat", "козы'"),
+            Map.entry("minecraft:panda", "па'нды"),
+            Map.entry("minecraft:dolphin", "дельфи'на"));
 
     private SongText() {
     }
@@ -87,12 +134,31 @@ public final class SongText {
             if (HEROBRINE.equals(id)) {
                 out.add(new SongLine(HEROBRINE_SUNG, MOB_TUNE[i], false, "kolobok.song.herobrine"));
             } else {
-                out.add(new SongLine(MOB_SUNG[i].replace("#", genitive(id)), MOB_TUNE[i], false,
-                        "kolobok.song.from." + i, id));
+                out.add(mobLine(id, i));
             }
         }
         out.add(FINALE);
         return Collections.unmodifiableList(out);
+    }
+
+    /**
+     * The whole song with every mob he got away from, for the songbook: three verses or more, never
+     * Herobrine. With up to three mobs it is the song as he sings it.
+     */
+    public static List<SongLine> book(List<String> mobs) {
+        List<SongLine> out = new ArrayList<>(HEAD);
+        for (int i = 0; i < mobs.size(); i++) {
+            // «Я от… / Я от… / От… ушёл,»: the short form closes the list, as in the tale.
+            int slot = mobs.size() >= MOB_LINES && i == mobs.size() - 1 ? MOB_LINES - 1 : i % 2;
+            out.add(mobLine(mobs.get(i), slot));
+        }
+        out.add(FINALE);
+        return Collections.unmodifiableList(out);
+    }
+
+    private static SongLine mobLine(String id, int slot) {
+        String subtitle = knows(id) ? "kolobok.song.from." + slot : "kolobok.song.from.unknown";
+        return new SongLine(MOB_SUNG[slot].replace("#", genitive(id)), MOB_TUNE[slot], false, subtitle, id);
     }
 
     /**
@@ -167,6 +233,44 @@ public final class SongText {
             }
         }
         return ordered;
+    }
+
+    /**
+     * @return whether the song knows how to name that mob; another mod's mob is sung by its id and
+     *         shown by its own name in quotes
+     */
+    public static boolean knows(String id) {
+        return GENITIVE.containsKey(id);
+    }
+
+    /**
+     * @return every mob the song can name
+     */
+    public static Set<String> knownMobs() {
+        return GENITIVE.keySet();
+    }
+
+    /**
+     * @return the mob ids of a verse list as {@link #joinVerses} wrote it
+     */
+    public static List<String> parseVerses(String joined) {
+        if (joined.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String id : joined.split(",")) {
+            if (!id.isEmpty() && !out.contains(id)) {
+                out.add(id);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /**
+     * @return the verse list as one string: synced data has no list type
+     */
+    public static String joinVerses(List<String> mobs) {
+        return String.join(",", mobs);
     }
 
     /**

@@ -149,7 +149,67 @@ public final class GenTextures {
         }
         ImageIO.write(spawnEgg(DOUGHS[0]), "png", new File(itemDir, "kolobok_spawn_egg.png"));
         ImageIO.write(rollingPin(), "png", new File(itemDir, "rolling_pin.png"));
-        System.out.println("Wrote " + DOUGHS.length + " atlases, the spawn egg and the rolling pin to " + root);
+        ImageIO.write(songbook(), "png", new File(itemDir, "songbook.png"));
+        System.out.println("Wrote " + DOUGHS.length + " atlases, the spawn egg, the rolling pin and the songbook to " + root);
+    }
+
+    /**
+     * Песенник: a red cloth-bound book with a darker spine and gold bands, cream page edges, and
+     * a little Kolobok over a gold title line on the cover.
+     */
+    static BufferedImage songbook() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        int[][] colour = new int[16][16];
+        int cover = 0xFFA23E28, spine = 0xFF6E2618, band = 0xFFE2B84E, page = 0xFFEFE3C4;
+        for (int y = 1; y <= 13; y++) {
+            for (int x = 2; x <= 12; x++) {
+                boolean onSpine = x <= 3;
+                int c = onSpine ? (y == 3 || y == 11 ? band : spine) : cover;
+                // Lit from the upper left, like the vanilla icons.
+                if (!onSpine && (x == 4 || y == 1)) {
+                    c = 0xFF000000 | shade(c, 1.12F);
+                } else if (!onSpine && (x == 12 || y == 13)) {
+                    c = 0xFF000000 | shade(c, 0.82F);
+                }
+                colour[y][x] = c;
+            }
+        }
+        // Page edges along the right and the bottom, a shade line between the sheets.
+        for (int y = 2; y <= 14; y++) {
+            colour[y][13] = y % 3 == 0 ? 0xFF000000 | shade(page, 0.88F) : page;
+        }
+        for (int x = 3; x <= 13; x++) {
+            colour[14][x] = x % 3 == 0 ? 0xFF000000 | shade(page, 0.88F) : page;
+        }
+        // Kolobok on the cover: a round bun with two eyes and a smile.
+        for (int y = 3; y <= 10; y++) {
+            for (int x = 4; x <= 11; x++) {
+                double dx = x + 0.5 - 8.0, dy = y + 0.5 - 6.5;
+                double d = Math.sqrt(dx * dx + dy * dy);
+                if (d <= 3.2) {
+                    int bun = d > 2.4 ? 0xFFC98A2E : dx + dy < -1.2 ? 0xFFF6D07A : 0xFFE9B44C;
+                    colour[y][x] = bun;
+                }
+            }
+        }
+        colour[6][6] = 0xFF3A2410;
+        colour[6][9] = 0xFF3A2410;
+        colour[8][7] = 0xFF8A3A1E;
+        colour[8][8] = 0xFF8A3A1E;
+        for (int x = 6; x <= 11; x++) {
+            colour[11][x] = band;
+        }
+        int outline = 0xFF3B1A10;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (colour[y][x] != 0) {
+                    img.setRGB(x, y, colour[y][x]);
+                } else if (touches(colour, x, y)) {
+                    img.setRGB(x, y, outline);
+                }
+            }
+        }
+        return img;
     }
 
     /**

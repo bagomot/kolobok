@@ -48,4 +48,17 @@ class StovePatternTest {
         assertEquals(MOUTH.above(2).relative(facing.getOpposite()).relative(facing.getCounterClockWise()),
                 StovePattern.posOf(MOUTH, facing, StovePart.CHIMNEY));
     }
+
+    @ParameterizedTest
+    @EnumSource(value = Direction.class, names = {"NORTH", "EAST", "SOUTH", "WEST"})
+    void theBenchIsOnTopBetweenTheRowsAndClearOfTheChimney(Direction facing) {
+        var bench = StovePattern.bench(MOUTH, facing);
+        var box = StovePattern.bounds(MOUTH, facing);
+        assertEquals(MOUTH.getY() + 2, bench.y, 1e-9, "on the top of the two layers");
+        BlockPos front = StovePattern.posOf(MOUTH, facing, StovePart.UPPER_FRONT_MIDDLE);
+        BlockPos back = StovePattern.posOf(MOUTH, facing, StovePart.UPPER_BACK_MIDDLE);
+        assertEquals((front.getX() + back.getX()) / 2.0 + 0.5, bench.x, 1e-9);
+        assertEquals((front.getZ() + back.getZ()) / 2.0 + 0.5, bench.z, 1e-9);
+        assertTrue(box.contains(bench.x, bench.y - 0.01, bench.z), "above the stove, not beside it");
+    }
 }

@@ -19,6 +19,7 @@ import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Mood;
+import ru.bagomot.kolobok.entity.Perk;
 import ru.bagomot.kolobok.entity.RideSlot;
 import ru.bagomot.kolobok.entity.Variant;
 
@@ -46,6 +47,10 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final int BUBBLE_COLOUR = 0xF0FFF6E0;
     private static final int TEXT_COLOUR = 0xFF3A2410;
     private static final int BURNT_TINT = 0xFF8A6A58;
+    private static final int GOLDEN_TINT = 0xFFFFE08A;
+    /** A pancake: wide and flat. */
+    private static final float PANCAKE_WIDTH = 1.3F;
+    private static final float PANCAKE_HEIGHT = 0.3F;
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
@@ -79,6 +84,8 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         }
 
         state.burnt = entity.hasFlag(KolobokEntity.FLAG_BURNT);
+        state.golden = entity.hasPerk(Perk.ENDER_DRAGON);
+        state.pancake = entity.getKState() == KState.PANCAKE;
         state.bubble = List.of();
         Component text = entity.clientSongLine != null ? entity.clientSongLine : entity.clientLine;
         if (text != null && KConfig.client().bubbles()) {
@@ -138,17 +145,23 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     }
 
     /**
-     * Burnt dough is a darker crust all over.
+     * Burnt dough is a darker crust all over; the dragon's verse gilds it.
      */
     @Override
     protected int getModelTint(KolobokRenderState state) {
-        return state.burnt ? BURNT_TINT : super.getModelTint(state);
+        if (state.burnt) {
+            return BURNT_TINT;
+        }
+        return state.golden ? GOLDEN_TINT : super.getModelTint(state);
     }
 
     @Override
     protected void scale(KolobokRenderState state, PoseStack poseStack) {
         if (state.variant == Variant.MINI) {
             poseStack.scale(MINI_SCALE, MINI_SCALE, MINI_SCALE);
+        }
+        if (state.pancake) {
+            poseStack.scale(PANCAKE_WIDTH, PANCAKE_HEIGHT, PANCAKE_WIDTH);
         }
     }
 
