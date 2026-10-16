@@ -6,7 +6,8 @@
     "environment": "client",
     "entrypoints": {
         "fabric-client-gametest": [
-            "ru.bagomot.kolobok.gametest.KolobokVisualTest"
+            "ru.bagomot.kolobok.gametest.KolobokVisualTest",
+            "ru.bagomot.kolobok.gametest.StoveVisualTest"
         ]
     },
     "depends": {

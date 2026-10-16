@@ -48,8 +48,24 @@ public final class KolobokVisualTest implements FabricClientGameTest {
             game.getConnection().waitForChunksRender();
             context.takeScreenshot("kolobok-01-variants");
 
-            // Milk tames him (chance forced to 1 above) and he answers in the bubble.
+            // Milk alone is refused: first his song has to be listened to, crouching beside him.
             server.runCommand("item replace entity @a weapon.mainhand with milk_bucket");
+            context.waitTicks(2);
+            input.pressKey(options -> options.keyUse);
+            context.waitTicks(4);
+            check(server, "to ask for his song first", k -> !k.isTame() && k.getSayKey().equals("unheard"));
+            input.holdKey(options -> options.keyShift);
+            context.waitTicks(2);
+            int songTicks = server.computeOnServer(s -> {
+                KolobokEntity classic = find(s, "classic");
+                classic.startSong(1);
+                return classic.composeSong().ticks();
+            });
+            context.waitTicks(songTicks + 2);
+            input.releaseKey(options -> options.keyShift);
+            context.waitTicks(3);
+
+            // Now milk tames him (chance forced to 1 above) and he answers in the bubble.
             context.waitTicks(2);
             input.pressKey(options -> options.keyUse);
             context.waitTicks(6);

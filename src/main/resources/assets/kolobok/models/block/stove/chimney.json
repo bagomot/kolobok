@@ -1,0 +1,37 @@
+{
+  "textures": {
+    "particle": "kolobok:block/stove_plaster",
+    "plaster": "kolobok:block/stove_plaster",
+    "ornament": "kolobok:block/stove_ornament",
+    "soot": "kolobok:block/stove_soot",
+    "dark": "kolobok:block/stove_dark",
+    "brick": "minecraft:block/bricks",
+    "ember": "minecraft:block/campfire_log_lit",
+    "fire": "minecraft:block/campfire_fire",
+    "log": "minecraft:block/oak_log",
+    "log_top": "minecraft:block/oak_log_top"
+  },
+  "elements": [
+    {"from": [2, 12, 2], "to": [14, 16, 2], "faces": {"north": {"texture": "#brick"}}},
+    {"from": [3, 0, 3], "to": [13, 12, 3], "faces": {"north": {"texture": "#plaster"}}},
+    {"from": [5, 14, 11], "to": [11, 16, 11], "faces": {"north": {"texture": "#brick"}}},
+    {"from": [5, 14, 5], "to": [11, 16, 5], "faces": {"south": {"texture": "#brick"}}},
+    {"from": [3, 0, 13], "to": [13, 12, 13], "faces": {"south": {"texture": "#plaster"}}},
+    {"from": [2, 12, 14], "to": [14, 16, 14], "faces": {"south": {"texture": "#brick"}}},
+    {"from": [2, 12, 2], "to": [2, 16, 14], "faces": {"west": {"texture": "#brick"}}},
+    {"from": [3, 0, 3], "to": [3, 12, 13], "faces": {"west": {"texture": "#plaster"}}},
+    {"from": [11, 14, 5], "to": [11, 16, 11], "faces": {"west": {"texture": "#brick"}}},
+    {"from": [5, 14, 5], "to": [5, 16, 11], "faces": {"east": {"texture": "#brick"}}},
+    {"from": [13, 0, 3], "to": [13, 12, 13], "faces": {"east": {"texture": "#plaster"}}},
+    {"from": [14, 12, 2], "to": [14, 16, 14], "faces": {"east": {"texture": "#brick"}}},
+    {"from": [2, 12, 2], "to": [14, 12, 3], "faces": {"down": {"texture": "#brick"}}},
+    {"from": [2, 12, 3], "to": [3, 12, 14], "faces": {"down": {"texture": "#brick"}}},
+    {"from": [13, 12, 3], "to": [14, 12, 14], "faces": {"down": {"texture": "#brick"}}},
+    {"from": [3, 12, 13], "to": [13, 12, 14], "faces": {"down": {"texture": "#brick"}}},
+    {"from": [5, 14, 5], "to": [11, 14, 11], "faces": {"up": {"texture": "#dark"}}},
+    {"from": [2, 16, 2], "to": [14, 16, 5], "faces": {"up": {"texture": "#brick", "cullface": "up"}}},
+    {"from": [2, 16, 5], "to": [5, 16, 14], "faces": {"up": {"texture": "#brick", "cullface": "up"}}},
+    {"from": [11, 16, 5], "to": [14, 16, 14], "faces": {"up": {"texture": "#brick", "cullface": "up"}}},
+    {"from": [5, 16, 11], "to": [11, 16, 14], "faces": {"up": {"texture": "#brick", "cullface": "up"}}}
+  ]
+}

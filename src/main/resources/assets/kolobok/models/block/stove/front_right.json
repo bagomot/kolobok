@@ -1,0 +1,21 @@
+{
+  "textures": {
+    "particle": "kolobok:block/stove_plaster",
+    "plaster": "kolobok:block/stove_plaster",
+    "ornament": "kolobok:block/stove_ornament",
+    "soot": "kolobok:block/stove_soot",
+    "dark": "kolobok:block/stove_dark",
+    "brick": "minecraft:block/bricks",
+    "ember": "minecraft:block/campfire_log_lit",
+    "fire": "minecraft:block/campfire_fire",
+    "log": "minecraft:block/oak_log",
+    "log_top": "minecraft:block/oak_log_top"
+  },
+  "elements": [
+    {"from": [0, 0, 0], "to": [16, 3, 0], "faces": {"north": {"texture": "#brick", "cullface": "north"}}},
+    {"from": [0, 3, 0], "to": [16, 16, 0], "faces": {"north": {"texture": "#plaster", "cullface": "north"}}},
+    {"from": [0, 0, 0], "to": [0, 3, 16], "faces": {"west": {"texture": "#brick", "cullface": "west"}}},
+    {"from": [0, 3, 0], "to": [0, 16, 16], "faces": {"west": {"texture": "#plaster", "cullface": "west"}}},
+    {"from": [0, 0, 0], "to": [16, 0, 16], "faces": {"down": {"texture": "#brick", "cullface": "down"}}}
+  ]
+}

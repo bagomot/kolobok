@@ -1,10 +1,12 @@
 package ru.bagomot.kolobok.client;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.util.RandomSource;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -44,6 +46,27 @@ public final class KolobokClient {
         blink(entity);
         speech(entity);
         mumble(entity);
+        SongPlayer.tick(entity);
+        if (entity.clientMouthTicks > 0) {
+            entity.clientMouthTicks--;
+        }
+        if (entity.getKState() == KState.HOT) {
+            steam(entity);
+        }
+    }
+
+    /**
+     * A fresh Kolobok steams until he has cooled.
+     */
+    private static void steam(KolobokEntity entity) {
+        RandomSource random = entity.getRandom();
+        if (random.nextInt(3) != 0) {
+            return;
+        }
+        double spread = entity.getBbWidth() * 0.35;
+        entity.level().addParticle(ParticleTypes.WHITE_SMOKE,
+                entity.getX() + (random.nextDouble() - 0.5) * spread, entity.getY() + entity.getBbHeight() * 0.9,
+                entity.getZ() + (random.nextDouble() - 0.5) * spread, 0.0, 0.03, 0.0);
     }
 
     /**

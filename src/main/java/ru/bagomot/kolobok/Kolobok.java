@@ -5,6 +5,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.platform.services.Platform;
+import ru.bagomot.kolobok.registry.KBlockEntities;
+import ru.bagomot.kolobok.registry.KBlocks;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KSounds;
@@ -41,6 +43,8 @@ public final class Kolobok {
         // Class loading order is registration order inside a catalogue; touching them here makes it
         // explicit instead of depending on who mentions which class first.
         KSounds.init();
+        KBlocks.init();
+        KBlockEntities.init();
         KEntities.init();
         KItems.init();
         KTabs.init();

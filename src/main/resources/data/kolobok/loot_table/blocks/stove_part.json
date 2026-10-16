@@ -1,0 +1,34 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "condition": {
+        "type": "minecraft:survives_explosion"
+      },
+      "entries": [
+        {
+          "type": "minecraft:alternatives",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "condition": {
+                "type": "minecraft:match_block",
+                "blocks": "kolobok:stove_part",
+                "state": {
+                  "part": "mouth"
+                }
+              },
+              "name": "minecraft:furnace"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "minecraft:bricks"
+            }
+          ]
+        }
+      ],
+      "rolls": 1
+    }
+  ],
+  "random_sequence": "kolobok:blocks/stove_part"
+}

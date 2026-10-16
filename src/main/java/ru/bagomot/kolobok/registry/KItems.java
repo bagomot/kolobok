@@ -3,10 +3,16 @@ package ru.bagomot.kolobok.registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.SpawnEggItem;
+import ru.bagomot.kolobok.item.RollingPinItem;
 
 public final class KItems {
 
     public static final KRegistry<Item> REGISTRY = new KRegistry<>(Registries.ITEM);
+
+    /** Бабушкина скалка. */
+    public static final KRegistry.Entry<Item, RollingPinItem> ROLLING_PIN = REGISTRY.register(
+            "rolling_pin",
+            key -> new RollingPinItem(RollingPinItem.properties().setId(key)));
 
     /** Creative tab only: there is no wild Kolobok. */
     public static final KRegistry.Entry<Item, SpawnEggItem> KOLOBOK_SPAWN_EGG = REGISTRY.register(

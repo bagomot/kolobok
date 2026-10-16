@@ -3,12 +3,16 @@ package ru.bagomot.kolobok;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
+import ru.bagomot.kolobok.block.StovePart;
+import ru.bagomot.kolobok.entity.song.SongLine;
+import ru.bagomot.kolobok.entity.song.SongText;
 import ru.bagomot.kolobok.entity.song.Syllable;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -50,6 +54,63 @@ class ResourcesTest {
             assertTrue(e.getValue().contains("0"), "no level-0 line in ru_ru for " + e.getKey());
             assertTrue(en.get(e.getKey()).contains("0"), "no level-0 line in en_us for " + e.getKey());
         }
+    }
+
+    @Test
+    void theStoveHasAModelForEveryStateAndEveryTextureItNames() throws IOException {
+        JsonObject variants = json("assets/kolobok/blockstates/stove_part.json").getAsJsonObject("variants");
+        int states = 0;
+        for (String facing : List.of("north", "east", "south", "west")) {
+            for (boolean lit : new boolean[]{false, true}) {
+                for (StovePart part : StovePart.values()) {
+                    String key = "facing=" + facing + ",lit=" + lit + ",part=" + part.getSerializedName();
+                    assertTrue(variants.has(key), key);
+                    String model = variants.getAsJsonObject(key).get("model").getAsString();
+                    JsonObject textures = json("assets/kolobok/models/" + model.substring("kolobok:".length()) + ".json")
+                            .getAsJsonObject("textures");
+                    for (String name : textures.keySet()) {
+                        String texture = textures.get(name).getAsString();
+                        if (texture.startsWith("kolobok:")) {
+                            try (InputStream png = resource("assets/kolobok/textures/" + texture.substring(8) + ".png")) {
+                                assertNotNull(png, texture);
+                            }
+                        }
+                    }
+                    states++;
+                }
+            }
+        }
+        assertEquals(states, variants.size(), "no stray variants");
+    }
+
+    @Test
+    void everySongLineHasASubtitleInBothLanguages() throws IOException {
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        List<String> mobs = List.of("minecraft:rabbit", "minecraft:wolf", "minecraft:creeper");
+        for (SongLine line : SongText.lines(1, mobs, null, true)) {
+            assertTrue(ru.has(line.subtitle()) && en.has(line.subtitle()), line.subtitle());
+            if (line.mob() != null) {
+                String verse = "kolobok.verse." + line.mob().replace(':', '.');
+                assertTrue(ru.has(verse) && en.has(verse), verse);
+            }
+        }
+        for (String key : ru.keySet()) {
+            if (key.startsWith("kolobok.verse.") || key.startsWith("kolobok.song.") || key.startsWith("kolobok.stove.")) {
+                assertTrue(en.has(key), "en_us lacks " + key);
+            }
+        }
+    }
+
+    @Test
+    void theRollingPinHasItsModelAndTexture() throws IOException {
+        json("assets/kolobok/items/rolling_pin.json");
+        json("assets/kolobok/models/item/rolling_pin.json");
+        try (InputStream png = resource("assets/kolobok/textures/item/rolling_pin.png")) {
+            assertNotNull(png);
+        }
+        json("data/kolobok/recipe/rolling_pin.json");
+        json("data/kolobok/loot_table/blocks/stove_part.json");
     }
 
     /**

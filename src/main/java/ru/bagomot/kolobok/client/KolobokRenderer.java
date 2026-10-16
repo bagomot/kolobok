@@ -7,6 +7,7 @@ import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.LightCoordsUtil;
@@ -44,6 +45,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final float BUBBLE_FULL_SIZE_DISTANCE = 5.0F;
     private static final int BUBBLE_COLOUR = 0xF0FFF6E0;
     private static final int TEXT_COLOUR = 0xFF3A2410;
+    private static final int BURNT_TINT = 0xFF8A6A58;
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
@@ -76,10 +78,12 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
             }
         }
 
+        state.burnt = entity.hasFlag(KolobokEntity.FLAG_BURNT);
         state.bubble = List.of();
-        if (entity.clientLine != null && KConfig.client().bubbles()) {
+        Component text = entity.clientSongLine != null ? entity.clientSongLine : entity.clientLine;
+        if (text != null && KConfig.client().bubbles()) {
             Font font = getFont();
-            state.bubble = font.split(entity.clientLine, BUBBLE_WIDTH);
+            state.bubble = font.split(text, BUBBLE_WIDTH);
             int width = 0;
             for (FormattedCharSequence line : state.bubble) {
                 width = Math.max(width, font.width(line));
@@ -119,7 +123,8 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         }
         return switch (mood) {
             case HAPPY -> KolobokModel.FACE_HAPPY;
-            case SING -> 2;
+            // The mouth opens on every sung note.
+            case SING -> entity.clientMouthTicks > 0 ? 2 : KolobokModel.FACE_HAPPY;
             case SCARED -> 3;
             case DIZZY -> 4;
             case SLEEP -> 5;
@@ -130,6 +135,14 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
             case GOLOVA -> 10;
             case GOLOVA_SLEEP -> 11;
         };
+    }
+
+    /**
+     * Burnt dough is a darker crust all over.
+     */
+    @Override
+    protected int getModelTint(KolobokRenderState state) {
+        return state.burnt ? BURNT_TINT : super.getModelTint(state);
     }
 
     @Override

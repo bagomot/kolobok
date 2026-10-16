@@ -148,7 +148,57 @@ public final class GenTextures {
             ImageIO.write(atlas(dough), "png", new File(entityDir, dough.name() + ".png"));
         }
         ImageIO.write(spawnEgg(DOUGHS[0]), "png", new File(itemDir, "kolobok_spawn_egg.png"));
-        System.out.println("Wrote " + DOUGHS.length + " atlases and the spawn egg to " + root);
+        ImageIO.write(rollingPin(), "png", new File(itemDir, "rolling_pin.png"));
+        System.out.println("Wrote " + DOUGHS.length + " atlases, the spawn egg and the rolling pin to " + root);
+    }
+
+    /**
+     * Grandma's rolling pin, lying diagonally like a vanilla sword: a thick turned body and a thin
+     * darker handle at each end, lit from the upper left.
+     */
+    static BufferedImage rollingPin() {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        int[][] colour = new int[16][16];
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                double px = x + 0.5, py = y + 0.5;
+                // Distance across the pin's axis (from (1,15) to (15,1)) and position along it.
+                double across = (px + py - 16.0) / Math.sqrt(2.0);
+                double along = (px - py) / Math.sqrt(2.0);
+                double r = Math.abs(along) <= 6.0 ? 1.9 : Math.abs(along) <= 9.2 ? 0.8 : -1;
+                if (Math.abs(across) <= r) {
+                    boolean handle = Math.abs(along) > 6.0;
+                    // A turned ring where the body meets each handle.
+                    boolean ring = Math.abs(along) > 5.3 && !handle;
+                    int base = handle ? 0x9C6B3A : ring ? 0xC89A5E : 0xE2BE84;
+                    // Lit from the upper left: the side towards it is lighter.
+                    double side = across / Math.max(r, 0.01);
+                    colour[y][x] = 0xFF000000 | (side < -0.45 ? shade(base, 1.12F) : side > 0.45 ? shade(base, 0.8F) : base);
+                }
+            }
+        }
+        int outline = 0xFF5A3A1C;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (colour[y][x] != 0) {
+                    img.setRGB(x, y, colour[y][x]);
+                } else if (touches(colour, x, y)) {
+                    img.setRGB(x, y, outline);
+                }
+            }
+        }
+        return img;
+    }
+
+    static boolean touches(int[][] colour, int x, int y) {
+        int[][] around = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+        for (int[] d : around) {
+            int nx = x + d[0], ny = y + d[1];
+            if (nx >= 0 && ny >= 0 && nx < 16 && ny < 16 && colour[ny][nx] != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static BufferedImage atlas(Dough dough) {

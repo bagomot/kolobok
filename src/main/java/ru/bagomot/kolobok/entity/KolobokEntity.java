@@ -1,10 +1,14 @@
 package ru.bagomot.kolobok.entity;
 
+import com.mojang.serialization.Codec;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
@@ -24,8 +28,10 @@ import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.TamableAnimal;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.AvoidEntityGoal;
 import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.FollowOwnerGoal;
+import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.PanicGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
@@ -43,18 +49,33 @@ import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import ru.bagomot.kolobok.block.StovePart;
+import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.song.Phonetics;
+import ru.bagomot.kolobok.entity.song.Song;
 import ru.bagomot.kolobok.entity.song.Syllable;
+import ru.bagomot.kolobok.entity.song.Voice;
+import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KSounds;
 
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
  * Колобок. A tamable pet that never really dies, sings his way out of trouble and rides on his
- * owner's shoulder. So far: dough variants, sit and follow, the shoulder and the head, speech
- * bubbles and mumbling.
+ * owner's shoulder.
+ *
+ * <p>He is born in the Russian stove: hot and asleep on the hearth, then, cooled, he opens his eyes
+ * and rolls away from whoever is looking. Every twenty seconds of the chase his head spins and he
+ * stops to sing a verse. A player who crouches beside him and keeps still for the whole verse has
+ * listened; milk then may tame him, and every song listened to makes that likelier.
  */
 public class KolobokEntity extends TamableAnimal {
 
@@ -77,6 +98,14 @@ public class KolobokEntity extends TamableAnimal {
     /** Entity id of the player he sits on, or -1. Ids are per session, so this is never saved. */
     private static final EntityDataAccessor<Integer> DATA_CARRIER =
             SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.INT);
+    /** Game time the current song started at; 0 while he is not singing. */
+    private static final EntityDataAccessor<Integer> DATA_SING_START =
+            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Integer> DATA_SING_SEED =
+            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.INT);
+    /** 0: the whole song; otherwise the one verse he sings, counted from 1. */
+    private static final EntityDataAccessor<Byte> DATA_SING_PART =
+            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.BYTE);
 
     public static final int FLAG_STALE = 1;
     public static final int FLAG_SOGGY = 1 << 1;
@@ -94,14 +123,36 @@ public class KolobokEntity extends TamableAnimal {
     /** Two presses of Shift this close together take him off the player. */
     private static final int DOUBLE_SHIFT_TICKS = 10;
 
+    /** Every twenty seconds of being chased his head spins and he stops to sing a verse. */
+    private static final int CHASE_STOP_TICKS = 400;
+    /** The first stop comes sooner, ten seconds after he cools. */
+    private static final int FIRST_STOP_TICKS = 200;
+    /** A chase is only a chase while a player is this close. */
+    private static final double CHASE_RANGE = 12.0;
+    private static final int DIZZY_TICKS = 30;
+    /** After a song someone listened to, he stays put this long, pleased: time to offer milk. */
+    private static final int CHARMED_TICKS = 60;
+    /** A listener crouches this close… */
+    private static final double LISTEN_RANGE = 3.0;
+    /** …moves less than this from where he started listening… */
+    private static final double LISTEN_STILL = 0.1;
+    /** …and settles down within this many ticks of the first note. */
+    private static final int LISTEN_JOIN_TICKS = 20;
+    /** A tamed Kolobok sings on his own every three to six minutes. */
+    private static final int SONG_GAP_MIN = 3600;
+    private static final int SONG_GAP_MAX = 7200;
+    /** In guard mode he walks back once he is this far from his post. */
+    private static final double GUARD_RANGE = 3.0;
+
     /**
-     * Client-side per-tick work: rolling, blinking, mumbling. Installed by the client initialiser so
-     * that this class never mentions a client type and still loads on a dedicated server.
+     * Client-side per-tick work: rolling, blinking, mumbling, steam. Installed by the client
+     * initialiser so that this class never mentions a client type and still loads on a dedicated
+     * server.
      */
     public static Consumer<KolobokEntity> clientTicker = entity -> {
     };
 
-    // Client-only state, owned by the client ticker. Plain fields: nothing here is synced.
+    // Client-only state, owned by the client code. Plain fields: nothing here is synced.
     public float clientRoll;
     public float clientRollO;
     public float clientRollSpeed;
@@ -112,15 +163,46 @@ public class KolobokEntity extends TamableAnimal {
     public @Nullable Component clientLine;
     public List<Syllable> clientMumble = List.of();
     public int clientMumbleIndex;
+    /** The song being played here, its start and the next sample to play. */
+    public @Nullable Song clientSong;
+    public int clientSongStart;
+    public int clientSongNext;
+    /** The song's current line for the bubble, or {@code null}. */
+    public @Nullable Component clientSongLine;
+    /** Ticks the mouth stays open after a sung note. */
+    public int clientMouthTicks;
 
     private int nextIdleChatter;
     private boolean carrierWasShifting;
     private int lastCarrierShiftPress = -100;
 
+    /** HOT: ticks until he has cooled. */
+    private int hotTicks;
+    /** The mouth of the stove he was baked in, and its dimension: his home. */
+    private @Nullable BlockPos home;
+    private @Nullable ResourceKey<Level> homeDimension;
+    private @Nullable BlockPos guardPost;
+
+    /** Songs each player has listened to through, while he was not tamed. */
+    private final Map<UUID, Integer> listened = new HashMap<>();
+    /** Who is listening to the current song, and where each one settled. */
+    private final Map<UUID, Vec3> listeners = new HashMap<>();
+    /** Who moved, stood up or walked off during the current song: they missed it. */
+    private final Set<UUID> fidgeted = new HashSet<>();
+    private int songEnd;
+    /** The verse the next stop of the chase is for. */
+    private int nextVerse = 1;
+    private int chaseTicks;
+    private int dizzyTicks;
+    private int charmedTicks;
+    private int nextSong;
+
     public KolobokEntity(EntityType<? extends KolobokEntity> type, Level level) {
         super(type, level);
         // Spread out, or every Kolobok loaded with the world speaks up on the same tick.
         nextIdleChatter = 200 + random.nextInt(1200);
+        nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
+        setPersistenceRequired();
     }
 
     public static AttributeSupplier.Builder createAttributes() {
@@ -144,6 +226,9 @@ public class KolobokEntity extends TamableAnimal {
         entityData.define(DATA_SAY_UNTIL, 0);
         entityData.define(DATA_RIDE_SLOT, (byte) RideSlot.NONE.ordinal());
         entityData.define(DATA_CARRIER, -1);
+        entityData.define(DATA_SING_START, 0);
+        entityData.define(DATA_SING_SEED, 0);
+        entityData.define(DATA_SING_PART, (byte) 0);
     }
 
     @Override
@@ -206,6 +291,14 @@ public class KolobokEntity extends TamableAnimal {
         return entityData.get(DATA_SAY_UNTIL);
     }
 
+    public int getSingStart() {
+        return entityData.get(DATA_SING_START);
+    }
+
+    public boolean isSinging() {
+        return getSingStart() != 0;
+    }
+
     /**
      * @return the player he sits on, if any and if that player is in this level
      */
@@ -217,7 +310,16 @@ public class KolobokEntity extends TamableAnimal {
         return level().getEntity(id) instanceof Player player ? player : null;
     }
 
+    /**
+     * @return how many songs that player has listened to through
+     */
+    public int songsListenedBy(Player player) {
+        return listened.getOrDefault(player.getUUID(), 0);
+    }
+
     // ------------------------------------------------------------------------------------ save
+
+    private static final Codec<Map<UUID, Integer>> LISTENED_CODEC = Codec.unboundedMap(UUIDUtil.STRING_CODEC, Codec.INT);
 
     @Override
     protected void addAdditionalSaveData(ValueOutput output) {
@@ -227,6 +329,12 @@ public class KolobokEntity extends TamableAnimal {
         // Sitting on a player is a session thing: the carrier is gone after a restart.
         KState state = getKState() == KState.ON_PLAYER ? KState.FOLLOW : getKState();
         output.putString("State", state.name());
+        output.putInt("HotTicks", hotTicks);
+        output.storeNullable("Home", BlockPos.CODEC, home);
+        output.storeNullable("HomeDimension", Level.RESOURCE_KEY_CODEC, homeDimension);
+        output.storeNullable("GuardPost", BlockPos.CODEC, guardPost);
+        output.store("Listened", LISTENED_CODEC, listened);
+        output.putInt("NextVerse", nextVerse);
     }
 
     @Override
@@ -242,6 +350,13 @@ public class KolobokEntity extends TamableAnimal {
             state = fallback;
         }
         setKState(state);
+        hotTicks = input.getIntOr("HotTicks", 0);
+        home = input.read("Home", BlockPos.CODEC).orElse(null);
+        homeDimension = input.read("HomeDimension", Level.RESOURCE_KEY_CODEC).orElse(null);
+        guardPost = input.read("GuardPost", BlockPos.CODEC).orElse(null);
+        listened.clear();
+        listened.putAll(input.read("Listened", LISTENED_CODEC).orElse(Map.of()));
+        nextVerse = input.getIntOr("NextVerse", 1);
     }
 
     // ------------------------------------------------------------------------------------ spawning
@@ -252,10 +367,27 @@ public class KolobokEntity extends TamableAnimal {
         // There is no wild Kolobok: this runs for /summon and the creative spawn egg, which give a
         // cooled, untamed one.
         setKState(KState.RUNAWAY);
+        chaseTicks = CHASE_STOP_TICKS - FIRST_STOP_TICKS;
         if (groupData == null) {
             groupData = new AgeableMob.AgeableMobGroupData(false);
         }
         return super.finalizeSpawn(level, difficulty, spawnReason, groupData);
+    }
+
+    /**
+     * Fresh out of the stove: hot, asleep on the hearth until he cools. The stove places him first.
+     *
+     * @param stove the stove's mouth, from now on his home
+     */
+    public void bake(Variant variant, boolean burnt, BlockPos stove, int coolTicks) {
+        setVariant(variant);
+        setFlag(FLAG_BURNT, burnt);
+        setKState(KState.HOT);
+        hotTicks = coolTicks;
+        home = stove.immutable();
+        homeDimension = level().dimension();
+        yBodyRot = getYRot();
+        yHeadRot = getYRot();
     }
 
     @Override
@@ -291,7 +423,19 @@ public class KolobokEntity extends TamableAnimal {
         goalSelector.addGoal(0, new FloatGoal(this));
         goalSelector.addGoal(1, new PanicGoal(this, 1.4));
         goalSelector.addGoal(2, new SitWhenOrderedToGoal(this));
-        goalSelector.addGoal(4, new FollowOwnerGoal(this, 1.1, 6.0F, 2.0F) {
+        goalSelector.addGoal(3, new SingGoal());
+        goalSelector.addGoal(4, new AvoidEntityGoal<>(this, Player.class, 8.0F, 1.0, 1.25) {
+            @Override
+            public boolean canUse() {
+                return getKState() == KState.RUNAWAY && super.canUse();
+            }
+
+            @Override
+            public boolean canContinueToUse() {
+                return getKState() == KState.RUNAWAY && super.canContinueToUse();
+            }
+        });
+        goalSelector.addGoal(5, new FollowOwnerGoal(this, 1.1, 6.0F, 2.0F) {
             @Override
             public boolean canUse() {
                 return getKState() == KState.FOLLOW && super.canUse();
@@ -302,6 +446,7 @@ public class KolobokEntity extends TamableAnimal {
                 return getKState() == KState.FOLLOW && super.canContinueToUse();
             }
         });
+        goalSelector.addGoal(5, new ReturnToPostGoal());
         goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.8) {
             @Override
             public boolean canUse() {
@@ -323,25 +468,44 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * Skips the whole AI step while he sits on a player: no goal may move him, the server places him
-     * itself every tick.
+     * While hot, and while on a player, the whole AI step is skipped: nothing may move him. Hot, he
+     * lies on the hearth; on a player, the server places him itself every tick.
      */
     @Override
     protected boolean isImmobile() {
-        return getKState() == KState.ON_PLAYER || super.isImmobile();
+        KState state = getKState();
+        return state == KState.ON_PLAYER || state == KState.HOT || super.isImmobile();
+    }
+
+    /** Neither the world nor a push moves him: he is on a player or lying on the hearth. */
+    private boolean isPinned() {
+        KState state = getKState();
+        return state == KState.ON_PLAYER || state == KState.HOT;
     }
 
     // ------------------------------------------------------------------------------------ ticking
 
     @Override
     public void tick() {
-        boolean onPlayer = getKState() == KState.ON_PLAYER;
-        noPhysics = onPlayer;
+        noPhysics = isPinned();
         super.tick();
-        if (level() instanceof ServerLevel) {
-            if (onPlayer) {
-                carryTick();
+        if (level() instanceof ServerLevel serverLevel) {
+            switch (getKState()) {
+                case ON_PLAYER -> carryTick();
+                case HOT -> hotTick();
+                case RUNAWAY -> chaseTick();
+                default -> {
+                }
             }
+            if (charmedTicks > 0) {
+                charmedTicks--;
+            }
+            // A spinning head belongs to the chase; tamed mid-spin, he stops at once.
+            if (getKState() != KState.RUNAWAY) {
+                dizzyTicks = 0;
+            }
+            songTick(serverLevel);
+            idleSong();
             updateMood();
             idleChatter();
         } else {
@@ -350,10 +514,19 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     private void updateMood() {
+        KState state = getKState();
         Mood mood;
-        if (isPanicking()) {
+        if (state == KState.HOT) {
+            mood = Mood.SLEEP;
+        } else if (isSinging()) {
+            mood = Mood.SING;
+        } else if (dizzyTicks > 0) {
+            mood = Mood.DIZZY;
+        } else if (isPanicking()) {
             mood = Mood.SCARED;
-        } else if (getKState() == KState.SIT && level().isDarkOutside()) {
+        } else if (state == KState.RUNAWAY && getNavigation().isInProgress()) {
+            mood = Mood.SLY;
+        } else if (state == KState.SIT && level().isDarkOutside()) {
             mood = Mood.SLEEP;
         } else {
             mood = Mood.HAPPY;
@@ -370,7 +543,7 @@ public class KolobokEntity extends TamableAnimal {
         // The server talks at «radio» rate; each client keeps as much of it as its chattiness setting
         // asks for. Event lines are never filtered.
         nextIdleChatter = 600 + random.nextInt(1200);
-        if (getMood() == Mood.SLEEP) {
+        if (getMood() == Mood.SLEEP || isSinging() || getKState() == KState.HOT) {
             return;
         }
         say(getKState() == KState.SIT && level().isDarkOutside() ? "night" : "idle");
@@ -387,6 +560,183 @@ public class KolobokEntity extends TamableAnimal {
         entityData.set(DATA_SAY_KEY, category);
         entityData.set(DATA_SAY_SEED, random.nextInt());
         entityData.set(DATA_SAY_UNTIL, (int) level().getGameTime() + SAY_TICKS);
+    }
+
+    // ------------------------------------------------------------------------------------ the stove
+
+    private void hotTick() {
+        // If the stove came apart under him, he is out in the world at once.
+        boolean stoveGone = tickCount % 20 == 0 && !homeStoveStands();
+        if (--hotTicks <= 0 || stoveGone) {
+            cool();
+        }
+    }
+
+    private boolean homeStoveStands() {
+        if (home == null || !level().dimension().equals(homeDimension)) {
+            return false;
+        }
+        BlockState state = level().getBlockState(home);
+        return state.getBlock() instanceof StovePartBlock && state.getValue(StovePartBlock.PART) == StovePart.MOUTH;
+    }
+
+    /**
+     * «Чё уставились?» He opens his eyes, hops off the hearth and the chase begins.
+     */
+    private void cool() {
+        hotTicks = 0;
+        setKState(KState.RUNAWAY);
+        noPhysics = false;
+        Vec3 out = Vec3.directionFromRotation(0.0F, getYRot());
+        setDeltaMovement(out.x * 0.3, 0.3, out.z * 0.3);
+        chaseTicks = CHASE_STOP_TICKS - FIRST_STOP_TICKS;
+        say("cooled");
+    }
+
+    /**
+     * Touching a hot Kolobok burns a little: «Горячо! Сам ты горячий!»
+     */
+    private void burn(Player player) {
+        if (level() instanceof ServerLevel serverLevel) {
+            player.hurtServer(serverLevel, damageSources().hotFloor(), 1.0F);
+            say("hot");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------ chase and song
+
+    /**
+     * Untamed, he rolls away from players. Every twenty seconds of being chased his head spins and he
+     * stops to sing the next verse — the chance to listen.
+     */
+    private void chaseTick() {
+        if (isSinging()) {
+            return;
+        }
+        if (charmedTicks > 0) {
+            return;
+        }
+        if (dizzyTicks > 0) {
+            if (--dizzyTicks == 0) {
+                startSong(nextVerse);
+                // The song wraps the count around its own number of verses, two or three; six is
+                // a whole number of rounds of either.
+                nextVerse = nextVerse % 6 + 1;
+            }
+            return;
+        }
+        if (level().getNearestPlayer(this, CHASE_RANGE) == null) {
+            return;
+        }
+        if (++chaseTicks >= CHASE_STOP_TICKS) {
+            chaseTicks = 0;
+            dizzyTicks = DIZZY_TICKS;
+            getNavigation().stop();
+        }
+    }
+
+    /**
+     * A tamed Kolobok sings the whole song every few minutes, unless he is asleep.
+     */
+    private void idleSong() {
+        if (!isTame() || --nextSong > 0) {
+            return;
+        }
+        nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
+        if (!isSinging() && getMood() != Mood.SLEEP) {
+            startSong(0);
+        }
+    }
+
+    /**
+     * @param part 0 for the whole song, otherwise the verse to sing
+     */
+    public void startSong(int part) {
+        if (level().isClientSide()) {
+            return;
+        }
+        int now = Math.max(1, (int) level().getGameTime());
+        int seed = random.nextInt();
+        entityData.set(DATA_SING_SEED, seed);
+        entityData.set(DATA_SING_PART, (byte) part);
+        entityData.set(DATA_SING_START, now);
+        // The bubble is the song's now.
+        entityData.set(DATA_SAY_UNTIL, now);
+        songEnd = now + composeSong().ticks();
+        listeners.clear();
+        fidgeted.clear();
+        getNavigation().stop();
+    }
+
+    /**
+     * Composes the song he is singing from the synced data alone, so that every client hears the
+     * same one.
+     */
+    public Song composeSong() {
+        return Song.compose(entityData.get(DATA_SING_SEED), entityData.get(DATA_SING_PART), List.of(), null,
+                hasFlag(FLAG_SING_HEROBRINE), songVoice());
+    }
+
+    /**
+     * @return his manner of singing; the pitch is {@link #voice()}
+     */
+    public Voice songVoice() {
+        return getVariant() == Variant.MINI ? Voice.MINI : Voice.NORMAL;
+    }
+
+    private void stopSong() {
+        entityData.set(DATA_SING_START, 0);
+        listeners.clear();
+        fidgeted.clear();
+    }
+
+    private void songTick(ServerLevel level) {
+        if (!isSinging()) {
+            return;
+        }
+        int now = (int) level.getGameTime();
+        if (now >= songEnd) {
+            finishSong(level);
+            return;
+        }
+        if (!isTame()) {
+            followListeners(level, now - getSingStart());
+        }
+    }
+
+    /**
+     * Listening, as the fox's flattery: crouch close, settle within the first second and keep still
+     * to the last note.
+     */
+    private void followListeners(ServerLevel level, int elapsed) {
+        for (Player player : level.players()) {
+            UUID id = player.getUUID();
+            boolean close = player.distanceToSqr(this) <= LISTEN_RANGE * LISTEN_RANGE && !player.isSpectator();
+            Vec3 settled = listeners.get(id);
+            if (settled == null) {
+                if (close && player.isShiftKeyDown() && elapsed <= LISTEN_JOIN_TICKS && !fidgeted.contains(id)) {
+                    listeners.put(id, player.position());
+                }
+            } else if (!close || !player.isShiftKeyDown()
+                    || settled.distanceToSqr(player.position()) > LISTEN_STILL * LISTEN_STILL) {
+                listeners.remove(id);
+                fidgeted.add(id);
+            }
+        }
+    }
+
+    private void finishSong(ServerLevel level) {
+        Set<UUID> heard = new HashSet<>(listeners.keySet());
+        stopSong();
+        if (isTame() || heard.isEmpty()) {
+            return;
+        }
+        for (UUID id : heard) {
+            listened.merge(id, 1, Integer::sum);
+        }
+        level.sendParticles(ParticleTypes.HAPPY_VILLAGER, getX(), getY() + 0.6, getZ(), 8, 0.3, 0.3, 0.3, 0.0);
+        charmedTicks = CHARMED_TICKS;
+        say("listened");
     }
 
     // ------------------------------------------------------------------------------------ shoulder and head
@@ -491,7 +841,7 @@ public class KolobokEntity extends TamableAnimal {
 
     @Override
     public boolean isPushable() {
-        return getKState() != KState.ON_PLAYER && super.isPushable();
+        return !isPinned() && super.isPushable();
     }
 
     /**
@@ -500,14 +850,45 @@ public class KolobokEntity extends TamableAnimal {
      */
     @Override
     protected void pushEntities() {
-        if (getKState() != KState.ON_PLAYER) {
+        if (!isPinned()) {
             super.pushEntities();
         }
     }
 
     @Override
     public boolean isNoGravity() {
-        return getKState() == KState.ON_PLAYER || super.isNoGravity();
+        return isPinned() || super.isNoGravity();
+    }
+
+    // ------------------------------------------------------------------------------------ modes
+
+    /**
+     * The rolling pin's click: follow → follow with crumbs → guard → wander → follow.
+     */
+    private void nextMode() {
+        KState state = getKState();
+        boolean crumbs = hasFlag(FLAG_CRUMBS);
+        String mode;
+        if (state == KState.FOLLOW && !crumbs) {
+            setFlag(FLAG_CRUMBS, true);
+            mode = "crumbs";
+        } else if (state == KState.FOLLOW) {
+            setFlag(FLAG_CRUMBS, false);
+            setKState(KState.GUARD);
+            guardPost = blockPosition();
+            mode = "guard";
+        } else if (state == KState.GUARD) {
+            setKState(KState.WANDER);
+            guardPost = null;
+            mode = "wander";
+        } else {
+            setFlag(FLAG_CRUMBS, false);
+            setKState(KState.FOLLOW);
+            guardPost = null;
+            mode = "follow";
+        }
+        getNavigation().stop();
+        say("mode_" + mode);
     }
 
     // ------------------------------------------------------------------------------------ interaction
@@ -517,6 +898,10 @@ public class KolobokEntity extends TamableAnimal {
         ItemStack stack = player.getItemInHand(hand);
         boolean owner = isTame() && isOwnedBy(player);
 
+        if (getKState() == KState.HOT) {
+            burn(player);
+            return InteractionResult.SUCCESS;
+        }
         if (stack.isEmpty() && owner && player.isShiftKeyDown()) {
             if (!level().isClientSide()) {
                 cycleRide(player);
@@ -529,6 +914,13 @@ public class KolobokEntity extends TamableAnimal {
                 setKState(sit ? KState.SIT : KState.FOLLOW);
                 getNavigation().stop();
                 say(sit ? "sit" : "follow");
+            }
+            return InteractionResult.SUCCESS;
+        }
+        if (stack.is(KItems.ROLLING_PIN.get()) && owner && !player.isShiftKeyDown()
+                && getKState() != KState.ON_PLAYER) {
+            if (!level().isClientSide()) {
+                nextMode();
             }
             return InteractionResult.SUCCESS;
         }
@@ -546,28 +938,32 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * Milk is «сметанка»: it heals, and an untamed Kolobok may decide to stay.
-     *
-     * <p>v0.1 stand-in: the full rule only lets milk tame a Kolobok whose song the
-     * player has listened to, and the song arrives in v0.2/v0.3. Until then milk alone tames with the
-     * same 1/3 chance.
+     * Milk is «сметанка»: it heals, and an untamed Kolobok whose song the player has listened to may
+     * decide to stay. The first song gives the configured chance, 1/3 by default; each further song
+     * adds half of it again.
      */
     private InteractionResult drinkMilk(Player player, InteractionHand hand, ItemStack stack) {
         if (level().isClientSide()) {
             return InteractionResult.SUCCESS;
         }
-        boolean useful = !isTame() || getHealth() < getMaxHealth();
-        if (!useful) {
+        if (isTame() && getHealth() >= getMaxHealth()) {
             say("full");
+            return InteractionResult.SUCCESS;
+        }
+        int songs = songsListenedBy(player);
+        if (!isTame() && songs == 0) {
+            say("unheard");
             return InteractionResult.SUCCESS;
         }
         player.setItemInHand(hand, ItemUtils.createFilledResult(stack, player, new ItemStack(Items.BUCKET)));
         heal(6.0F);
         if (isTame()) {
             say("milk");
-        } else if (random.nextInt(KConfig.server().tameChanceDenominator) == 0) {
+        } else if (random.nextFloat() < tameChance(songs)) {
             tame(player);
             setKState(KState.FOLLOW);
+            stopSong();
+            charmedTicks = 0;
             getNavigation().stop();
             level().broadcastEntityEvent(this, (byte) 7);
             say("tamed");
@@ -576,6 +972,16 @@ public class KolobokEntity extends TamableAnimal {
             say("milk_untamed");
         }
         return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
+     * @return the chance that milk tames him after that many songs listened to
+     */
+    public static float tameChance(int songs) {
+        if (songs <= 0) {
+            return 0.0F;
+        }
+        return Math.min(1.0F, (1.0F + (songs - 1) * 0.5F) / Math.max(1, KConfig.server().tameChanceDenominator));
     }
 
     private static @Nullable String refusalFor(ItemStack stack) {
@@ -606,7 +1012,17 @@ public class KolobokEntity extends TamableAnimal {
                 && (source.is(DamageTypes.IN_WALL) || source.is(DamageTypeTags.IS_FALL))) {
             return false;
         }
+        // Fresh from the oven nothing hurts him, and whoever hits him burns a hand.
+        if (getKState() == KState.HOT && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+            if (source.getDirectEntity() instanceof Player player) {
+                burn(player);
+            }
+            return false;
+        }
         boolean hurt = super.hurtServer(level, source, damage);
+        if (hurt && isSinging()) {
+            stopSong();
+        }
         // Fire or a cactus hurt him every few ticks; one «Ой!» per two seconds is plenty.
         boolean quiet = (int) level.getGameTime() >= getSayUntil() - SAY_TICKS + HURT_LINE_GAP;
         if (hurt && isAlive() && quiet) {
@@ -654,5 +1070,63 @@ public class KolobokEntity extends TamableAnimal {
     @Override
     public SoundSource getSoundSource() {
         return SoundSource.NEUTRAL;
+    }
+
+    // ------------------------------------------------------------------------------------ goal classes
+
+    /**
+     * Stands still while he sings, while his head spins and for a moment after a song someone
+     * listened to, facing the nearest player.
+     */
+    private final class SingGoal extends Goal {
+
+        SingGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK, Goal.Flag.JUMP));
+        }
+
+        @Override
+        public boolean canUse() {
+            return isSinging() || dizzyTicks > 0 || charmedTicks > 0;
+        }
+
+        @Override
+        public void start() {
+            getNavigation().stop();
+        }
+
+        @Override
+        public void tick() {
+            Player player = level().getNearestPlayer(KolobokEntity.this, 8.0);
+            if (player != null) {
+                getLookControl().setLookAt(player);
+            }
+        }
+    }
+
+    /**
+     * In guard mode he keeps to his post.
+     */
+    private final class ReturnToPostGoal extends Goal {
+
+        ReturnToPostGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            return getKState() == KState.GUARD && guardPost != null
+                    && distanceToSqr(Vec3.atBottomCenterOf(guardPost)) > GUARD_RANGE * GUARD_RANGE;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return getKState() == KState.GUARD && !getNavigation().isDone();
+        }
+
+        @Override
+        public void start() {
+            Vec3 post = Vec3.atBottomCenterOf(guardPost);
+            getNavigation().moveTo(post.x, post.y, post.z, 1.0);
+        }
     }
 }
