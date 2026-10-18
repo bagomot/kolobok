@@ -3,6 +3,7 @@ package ru.bagomot.kolobok.registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.SpawnEggItem;
+import ru.bagomot.kolobok.item.DoughItem;
 import ru.bagomot.kolobok.item.RollingPinItem;
 import ru.bagomot.kolobok.item.SongbookItem;
 
@@ -14,6 +15,16 @@ public final class KItems {
     public static final KRegistry.Entry<Item, RollingPinItem> ROLLING_PIN = REGISTRY.register(
             "rolling_pin",
             key -> new RollingPinItem(RollingPinItem.properties().setId(key)));
+
+    /** Тесто: wheat, an egg and «сметанка», kneaded at the crafting table. */
+    public static final KRegistry.Entry<Item, DoughItem> DOUGH = REGISTRY.register(
+            "dough",
+            key -> new DoughItem(new Item.Properties().stacksTo(16).setId(key)));
+
+    /** Сырой колобок: the dough rolled with the rolling pin, ready for the горнило. */
+    public static final KRegistry.Entry<Item, DoughItem> RAW_KOLOBOK = REGISTRY.register(
+            "raw_kolobok",
+            key -> new DoughItem(new Item.Properties().stacksTo(1).setId(key)));
 
     /** Песенник: book and wheat. */
     public static final KRegistry.Entry<Item, SongbookItem> SONGBOOK = REGISTRY.register(

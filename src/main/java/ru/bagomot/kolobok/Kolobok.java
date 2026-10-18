@@ -7,8 +7,10 @@ import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.platform.services.Platform;
 import ru.bagomot.kolobok.registry.KBlockEntities;
 import ru.bagomot.kolobok.registry.KBlocks;
+import ru.bagomot.kolobok.registry.KComponents;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
+import ru.bagomot.kolobok.registry.KRecipes;
 import ru.bagomot.kolobok.registry.KSounds;
 import ru.bagomot.kolobok.registry.KTabs;
 
@@ -46,7 +48,9 @@ public final class Kolobok {
         KBlocks.init();
         KBlockEntities.init();
         KEntities.init();
+        KComponents.init();
         KItems.init();
+        KRecipes.init();
         KTabs.init();
         KConfig.loadServer(loader.configDirectory());
         LOG.info("Kolobok on {}: жили-были", loader.platformName());

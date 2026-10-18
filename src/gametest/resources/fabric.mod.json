@@ -8,7 +8,8 @@
         "fabric-client-gametest": [
             "ru.bagomot.kolobok.gametest.KolobokVisualTest",
             "ru.bagomot.kolobok.gametest.StoveVisualTest",
-            "ru.bagomot.kolobok.gametest.VersesVisualTest"
+            "ru.bagomot.kolobok.gametest.VersesVisualTest",
+            "ru.bagomot.kolobok.gametest.FoxVisualTest"
         ]
     },
     "depends": {

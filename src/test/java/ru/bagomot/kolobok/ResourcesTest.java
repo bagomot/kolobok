@@ -2,6 +2,7 @@ package ru.bagomot.kolobok;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 import ru.bagomot.kolobok.block.StovePart;
 import ru.bagomot.kolobok.entity.Perk;
@@ -113,7 +114,8 @@ class ResourcesTest {
             assertTrue(ru.has(key) && en.has(key), key);
         }
         for (Perk perk : Perk.values()) {
-            assertTrue(SongText.knows(perk.mob()), "a perk the song cannot sing about: " + perk);
+            // The fox is never sung about: its perk comes of being rescued from one.
+            assertEquals(perk != Perk.FOX, SongText.knows(perk.mob()), "a perk the song cannot sing about: " + perk);
             assertEquals(perk, Perk.forMob(perk.mob()));
             for (String key : List.of(perk.key(), perk.key() + ".desc")) {
                 assertTrue(ru.has(key) && en.has(key), key);
@@ -139,6 +141,40 @@ class ResourcesTest {
         }
         json("data/kolobok/recipe/songbook.json");
         json("data/kolobok/advancement/recipes/misc/songbook.json");
+    }
+
+    @Test
+    void doughAndTheRawKolobokHaveModelsRecipesAndANameForEveryDough() throws IOException {
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        for (String item : List.of("dough", "raw_kolobok")) {
+            json("assets/kolobok/items/" + item + ".json");
+            JsonObject model = json("assets/kolobok/models/item/" + item + ".json");
+            String texture = model.getAsJsonObject("textures").get("layer0").getAsString();
+            try (InputStream png = resource("assets/kolobok/textures/" + texture.substring("kolobok:".length()) + ".png")) {
+                assertNotNull(png, texture);
+            }
+            json("data/kolobok/recipe/" + item + ".json");
+            json("data/kolobok/advancement/recipes/misc/" + item + ".json");
+            assertTrue(ru.has("item.kolobok." + item) && en.has("item.kolobok." + item), item);
+            for (Variant variant : Variant.values()) {
+                String key = "item.kolobok." + item + "." + variant.serializedName();
+                assertTrue(variant == Variant.CLASSIC || ru.has(key) && en.has(key), key);
+            }
+        }
+        for (String dough : List.of("mini", "borodinsky", "golden")) {
+            json("data/kolobok/recipe/dough_" + dough + ".json");
+            json("data/kolobok/advancement/recipes/misc/dough_" + dough + ".json");
+        }
+        try (InputStream png = resource("assets/kolobok/textures/entity/kolobok/dough.png")) {
+            assertNotNull(png, "the raw Kolobok in the горнило");
+        }
+    }
+
+    @Test
+    void foxesAreAmongWhatScaresKolobok() throws IOException {
+        var values = json("data/kolobok/tags/entity_type/scares_kolobok.json").getAsJsonArray("values");
+        assertTrue(values.contains(new JsonPrimitive("minecraft:fox")));
     }
 
     @Test

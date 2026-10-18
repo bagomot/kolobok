@@ -65,7 +65,7 @@ public class SongbookItem extends Item {
         for (Component page : song(kolobok.verses())) {
             pages.add(page(page));
         }
-        for (Component page : perks(kolobok.verses())) {
+        for (Component page : perks(kolobok.perks())) {
             pages.add(page(page));
         }
         String name = kolobok.getName().getString();
@@ -113,14 +113,7 @@ public class SongbookItem extends Item {
         return pages;
     }
 
-    private static List<Component> perks(List<String> mobs) {
-        List<Perk> perks = new ArrayList<>();
-        for (String mob : mobs) {
-            Perk perk = Perk.forMob(mob);
-            if (perk != null) {
-                perks.add(perk);
-            }
-        }
+    private static List<Component> perks(List<Perk> perks) {
         List<Component> pages = new ArrayList<>();
         if (perks.isEmpty()) {
             pages.add(perksHeader().append("\n\n").append(Component.translatable("kolobok.songbook.no_perks")));

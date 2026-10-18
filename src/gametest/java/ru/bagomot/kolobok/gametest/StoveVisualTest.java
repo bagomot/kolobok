@@ -11,6 +11,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -25,13 +26,16 @@ import ru.bagomot.kolobok.entity.Mood;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
 
+import java.util.UUID;
 import java.util.function.Predicate;
 
 /**
- * The v0.2 scene with a real client: vanilla bricks and a furnace become the Russian stove under the
- * rolling pin, the dough and the fire go in by hand, the stove bakes a hot Kolobok, he cools by the
- * window and runs, stops to sing, is listened to by a crouching player and tamed with milk; the
- * rolling pin then switches his modes, and one broken brick takes the stove apart again.
+ * The stove scene with a real client: vanilla bricks and a furnace become the Russian stove under the
+ * rolling pin; logs go into the подпечье and a raw Kolobok into the горнило by hand, the stove bakes
+ * him hot in there, he cools by the window, hops out and runs, stops to sing, is listened to by a
+ * crouching player and tamed with milk; the rolling pin then switches his modes. The горнило then
+ * roasts a stack of beef at once, a stove that has baked five Kolobki takes no more raw ones, and one
+ * broken brick takes the stove apart again.
  */
 public final class StoveVisualTest implements FabricClientGameTest {
 
@@ -40,6 +44,8 @@ public final class StoveVisualTest implements FabricClientGameTest {
     private static final Direction FACING = Direction.SOUTH;
     private static final String CLOSE = "tp @a 0.5 -60 -1.5 180 30";
     private static final String VIEW = "tp @a 0.5 -60 3.5 180 8";
+    /** Low and close, to look into the горнило. */
+    private static final String INSIDE = "tp @a 0.5 -60 -1.3 180 15";
 
     @Override
     public void runTest(ClientGameTestContext context) {
@@ -81,44 +87,54 @@ public final class StoveVisualTest implements FabricClientGameTest {
             context.waitTicks(10);
             context.takeScreenshot("stove-02-built");
 
-            // Three wheat, an egg, «сметанка» and coal, each by a right-click on the stove.
+            // Logs into the подпечье and the raw Kolobok into the горнило, each by a right-click.
             server.runCommand(CLOSE);
-            for (String item : new String[]{"wheat", "wheat", "wheat", "egg", "milk_bucket", "coal"}) {
-                server.runCommand("item replace entity @a weapon.mainhand with minecraft:" + item);
+            for (String item : new String[]{"minecraft:oak_log 16", "kolobok:raw_kolobok"}) {
+                server.runCommand("item replace entity @a weapon.mainhand with " + item);
                 context.waitTicks(2);
                 input.pressKey(options -> options.keyUse);
                 context.waitTicks(4);
             }
             server.runOnServer(s -> {
                 StoveBlockEntity stove = stove(s);
-                if (!stove.doughReady() || !s.overworld().getBlockState(MOUTH).getValue(StovePartBlock.LIT)) {
-                    throw new AssertionError("Dough or fire missing: " + stove.status().getString());
+                if (!stove.logs().is(Items.OAK_LOG) || !stove.oven().is(KItems.RAW_KOLOBOK.get())
+                        || !s.overworld().getBlockState(MOUTH).getValue(StovePartBlock.LIT)) {
+                    throw new AssertionError("Logs, the raw Kolobok or the fire missing: " + stove.status().getString());
                 }
             });
             context.takeScreenshot("stove-03-status");
             server.runCommand(VIEW);
             context.waitTicks(80);
             context.takeScreenshot("stove-04-burning");
+            server.runCommand(INSIDE);
+            context.waitTicks(200);
+            context.takeScreenshot("stove-05-baking");
 
-            // Thirty seconds later a hot Kolobok lies on the hearth, asleep and steaming.
-            waitFor(context, server, 700, "a baked Kolobok", s -> baked(s) != null);
+            // Thirty seconds in all, and a hot Kolobok sits in the горнило, asleep and steaming.
+            waitFor(context, server, 500, "a baked Kolobok", s -> baked(s) != null);
             server.runCommand("tag @e[type=kolobok:kolobok] add baked");
-            check(server, "hot on the hearth", k -> k.getKState() == KState.HOT);
-            server.runCommand("tp @a 0.5 -60 -1.2 180 22");
+            check(server, "hot in the горнило", k -> k.getKState() == KState.HOT
+                    && k.position().distanceTo(StovePattern.gornilo(MOUTH, FACING)) < 0.1);
+            check(server, "remembered by his stove", k -> stove(k.level().getServer()).remembers(k.getUUID()));
             context.waitTicks(10);
-            context.takeScreenshot("stove-05-hot");
+            context.takeScreenshot("stove-06-hot");
             server.runOnServer(s -> {
                 ServerPlayer player = player(s);
                 baked(s).mobInteract(player, InteractionHand.MAIN_HAND);
             });
             check(server, "to complain about being touched hot", k -> k.getSayKey().equals("hot"));
+            // The bubble shows from inside the горнило, through the stove.
+            context.waitTicks(5);
+            context.takeScreenshot("stove-06-said-hot");
 
             // By the window he cools in thirty seconds, opens his eyes and rolls away.
             server.runCommand("gamemode survival @a");
             server.runCommand("effect give @a minecraft:resistance 600 4 true");
-            waitFor(context, server, 700, "him to cool", s -> baked(s).getKState() == KState.RUNAWAY);
+            waitFor(context, server, 750, "him to cool and hop out", s -> baked(s).getKState() == KState.RUNAWAY);
+            context.waitTicks(12);
+            check(server, "out of the горнило", k -> k.position().distanceTo(StovePattern.gornilo(MOUTH, FACING)) > 0.5);
             context.waitTicks(10);
-            context.takeScreenshot("stove-06-cooled");
+            context.takeScreenshot("stove-07-cooled");
 
             // Ten seconds into the chase his head spins: sneak up and crouch beside him. A chase is
             // only a chase while someone keeps up, so the player follows him every second.
@@ -138,7 +154,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
             input.holdKey(options -> options.keyShift);
             waitFor(context, server, 60, "him to sing", s -> baked(s).isSinging());
             context.waitTicks(30);
-            context.takeScreenshot("stove-07-singing");
+            context.takeScreenshot("stove-08-singing");
             int songTicks = server.computeOnServer(s -> baked(s).composeSong().ticks());
             context.waitTicks(songTicks);
             input.releaseKey(options -> options.keyShift);
@@ -147,7 +163,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
             if (heard != 1) {
                 throw new AssertionError("Crouched through the verse, but he counts " + heard + " songs listened to");
             }
-            context.takeScreenshot("stove-08-listened");
+            context.takeScreenshot("stove-09-listened");
 
             // Pleased, he stays put for a moment: milk now tames him (the chance is forced to 1 above).
             server.runCommand("item replace entity @a weapon.mainhand with minecraft:milk_bucket");
@@ -156,7 +172,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
             input.pressKey(options -> options.keyUse);
             context.waitTicks(6);
             check(server, "tamed", k -> k.isTame() && k.getKState() == KState.FOLLOW);
-            context.takeScreenshot("stove-09-tamed");
+            context.takeScreenshot("stove-10-tamed");
 
             // The rolling pin: follow → crumbs → guard → wander → follow.
             server.runOnServer(s -> {
@@ -171,7 +187,56 @@ public final class StoveVisualTest implements FabricClientGameTest {
                 if (!modes.toString().equals("FOLLOW+crumbs GUARD WANDER FOLLOW ")) {
                     throw new AssertionError("Modes went " + modes);
                 }
+                // Out of the way of the clicks on the stove, and not off to sit in its горнило.
+                k.setKState(KState.SIT);
+                k.teleportTo(4.5, -60, 0.5);
             });
+
+            // Eight raw beef roast in the горнило all at once; an empty hand takes them out.
+            server.runCommand(CLOSE);
+            server.runCommand("item replace entity @a weapon.mainhand with minecraft:beef 8");
+            context.waitTicks(2);
+            input.pressKey(options -> options.keyUse);
+            context.waitTicks(4);
+            server.runOnServer(s -> {
+                StoveBlockEntity stove = stove(s);
+                if (!stove.oven().is(Items.BEEF) || stove.oven().getCount() != 8 || !stove.isLit()) {
+                    throw new AssertionError("The beef did not go in to roast: " + stove.status().getString());
+                }
+            });
+            waitFor(context, server, 500, "the beef to roast", s -> stove(s).isCooked());
+            server.runCommand(INSIDE);
+            context.waitTicks(5);
+            context.takeScreenshot("stove-11-roasted");
+            server.runCommand(CLOSE);
+            server.runCommand("item replace entity @a weapon.mainhand with minecraft:air");
+            context.waitTicks(2);
+            input.pressKey(options -> options.keyUse);
+            context.waitTicks(4);
+            server.runOnServer(s -> {
+                int beef = player(s).getInventory().countItem(Items.COOKED_BEEF);
+                if (beef != 8 || !stove(s).oven().isEmpty()) {
+                    throw new AssertionError("Took out " + beef + " cooked beef: " + stove(s).status().getString());
+                }
+            });
+
+            // Five Kolobki, and the stove bakes no more: the raw one stays in the hand.
+            server.runOnServer(s -> {
+                StoveBlockEntity stove = stove(s);
+                while (!stove.isFull()) {
+                    stove.adopt(UUID.randomUUID());
+                }
+            });
+            server.runCommand("item replace entity @a weapon.mainhand with kolobok:raw_kolobok");
+            context.waitTicks(2);
+            input.pressKey(options -> options.keyUse);
+            context.waitTicks(4);
+            server.runOnServer(s -> {
+                if (!stove(s).oven().isEmpty() || !player(s).getMainHandItem().is(KItems.RAW_KOLOBOK.get())) {
+                    throw new AssertionError("A full stove took a raw Kolobok: " + stove(s).status().getString());
+                }
+            });
+            context.takeScreenshot("stove-12-full");
 
             // One brick broken: everything else turns back into the bricks and the furnace.
             server.runCommand("setblock -1 -59 -5 minecraft:air");
@@ -192,7 +257,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
             });
             server.runCommand(VIEW);
             context.waitTicks(10);
-            context.takeScreenshot("stove-10-apart");
+            context.takeScreenshot("stove-13-apart");
         }
     }
 
@@ -216,7 +281,9 @@ public final class StoveVisualTest implements FabricClientGameTest {
             }
             context.waitTicks(1);
         }
-        throw new AssertionError("Waited " + ticks + " ticks for " + what);
+        String stove = server.computeOnServer(s -> s.overworld().getBlockEntity(MOUTH) instanceof StoveBlockEntity found
+                ? found.status().getString() + " lit=" + found.isLit() : "no stove");
+        throw new AssertionError("Waited " + ticks + " ticks for " + what + "; the stove: " + stove);
     }
 
     private static void check(TestServerContext server, String what, Predicate<KolobokEntity> test) {

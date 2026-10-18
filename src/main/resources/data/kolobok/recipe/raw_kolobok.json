@@ -1,0 +1,9 @@
+{
+  "type": "kolobok:roll_dough",
+  "category": "misc",
+  "input": "kolobok:dough",
+  "material": "kolobok:rolling_pin",
+  "result": {
+    "id": "kolobok:raw_kolobok"
+  }
+}

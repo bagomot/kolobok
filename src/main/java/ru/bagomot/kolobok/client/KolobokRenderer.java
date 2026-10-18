@@ -46,6 +46,11 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final float BUBBLE_FULL_SIZE_DISTANCE = 5.0F;
     private static final int BUBBLE_COLOUR = 0xF0FFF6E0;
     private static final int TEXT_COLOUR = 0xFF3A2410;
+    /** Through blocks the bubble shows faded, as a name tag does: from the горнило, out of leaves. */
+    private static final int BUBBLE_THROUGH_COLOUR = 0x60FFF6E0;
+    private static final int TEXT_THROUGH_COLOUR = 0x903A2410;
+    /** Seen through walls only this close, so it is no way of finding him from afar. */
+    private static final double BUBBLE_THROUGH_DISTANCE = 16.0;
     private static final int BURNT_TINT = 0xFF8A6A58;
     private static final int GOLDEN_TINT = 0xFFFFE08A;
     /** A pancake: wide and flat. */
@@ -187,14 +192,14 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
 
     /**
      * A light speech bubble above him, the text-display way: one background quad, then the lines on it
-     * with polygon offset so they never fight.
+     * with polygon offset so they never fight. Close by, a faded copy is drawn through blocks, so his
+     * words are not lost when he sits in the горнило or in leaves.
      */
     private static void submitBubble(KolobokRenderState state, PoseStack poseStack, SubmitNodeCollector collector,
                                      CameraRenderState camera) {
         float above = state.boundingBoxHeight + 0.45F + (state.nameTag != null ? 0.3F : 0.0F);
         int width = state.bubbleWidth;
         int height = state.bubble.size() * LINE_HEIGHT - 1;
-        Font.DisplayMode mode = Font.DisplayMode.POLYGON_OFFSET;
         int light = LightCoordsUtil.FULL_BRIGHT;
         // Name-tag size from five blocks out; closer, it shrinks with the distance so it keeps its size
         // on screen instead of covering the view of whoever he is talking to.
@@ -205,18 +210,29 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         poseStack.translate(0.0F, above, 0.0F);
         poseStack.rotate(camera.orientation);
         poseStack.scale(scale, -scale, scale);
+        if (state.distanceToCameraSq < BUBBLE_THROUGH_DISTANCE * BUBBLE_THROUGH_DISTANCE) {
+            submitBubble(state, poseStack, collector, width, height, Font.DisplayMode.SEE_THROUGH,
+                    BUBBLE_THROUGH_COLOUR, TEXT_THROUGH_COLOUR, light);
+        }
+        submitBubble(state, poseStack, collector, width, height, Font.DisplayMode.POLYGON_OFFSET,
+                BUBBLE_COLOUR, TEXT_COLOUR, light);
+        poseStack.popPose();
+    }
+
+    private static void submitBubble(KolobokRenderState state, PoseStack poseStack, SubmitNodeCollector collector,
+                                     int width, int height, Font.DisplayMode mode, int bubbleColour, int textColour,
+                                     int light) {
         float left = -width / 2.0F;
         float top = -height;
-        collector.submitTextBackground(poseStack, left - 3.0F, top - 2.0F, left + width + 2.0F, 2.0F, BUBBLE_COLOUR, mode, light);
+        collector.submitTextBackground(poseStack, left - 3.0F, top - 2.0F, left + width + 2.0F, 2.0F, bubbleColour, mode, light);
         // The tail: two steps narrowing toward him.
-        collector.submitTextBackground(poseStack, -3.0F, 2.0F, 2.0F, 4.0F, BUBBLE_COLOUR, mode, light);
-        collector.submitTextBackground(poseStack, -1.0F, 4.0F, 0.0F, 6.0F, BUBBLE_COLOUR, mode, light);
+        collector.submitTextBackground(poseStack, -3.0F, 2.0F, 2.0F, 4.0F, bubbleColour, mode, light);
+        collector.submitTextBackground(poseStack, -1.0F, 4.0F, 0.0F, 6.0F, bubbleColour, mode, light);
         float y = top;
         for (FormattedCharSequence line : state.bubble) {
             float x = -Minecraft.getInstance().font.width(line) / 2.0F;
-            collector.submitText(poseStack, x, y, line, false, mode, light, TEXT_COLOUR, 0, 0);
+            collector.submitText(poseStack, x, y, line, false, mode, light, textColour, 0, 0);
             y += LINE_HEIGHT;
         }
-        poseStack.popPose();
     }
 }

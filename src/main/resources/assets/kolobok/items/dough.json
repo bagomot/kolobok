@@ -1,0 +1,39 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:component",
+    "component": "kolobok:dough",
+    "cases": [
+      {
+        "when": "borodinsky",
+        "model": {
+          "type": "minecraft:model",
+          "model": "kolobok:item/dough",
+          "tints": [
+            {
+              "type": "minecraft:constant",
+              "value": -7576504
+            }
+          ]
+        }
+      },
+      {
+        "when": "golden",
+        "model": {
+          "type": "minecraft:model",
+          "model": "kolobok:item/dough",
+          "tints": [
+            {
+              "type": "minecraft:constant",
+              "value": -12208
+            }
+          ]
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "kolobok:item/dough"
+    }
+  }
+}

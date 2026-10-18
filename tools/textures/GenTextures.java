@@ -28,6 +28,9 @@ public final class GenTextures {
             new Dough("mini", 0xC27A30, 0xE2AA52, 0xF4D89A, 0xF9EAC6, 0x94561E, 5),
     };
 
+    /** Raw dough, before the oven: pale all over, floury. The baking renderer tints it as it bakes. */
+    static final Dough RAW = new Dough("dough", 0xE6D2A2, 0xEEDDB4, 0xF5EBD0, 0xFFFFFF, 0xD8C08C, 6);
+
     static final int EYE = 0x1C120C;
     static final int SHINE = 0xFFFFFF;
     static final int MOUTH = 0x4A1610;
@@ -147,10 +150,70 @@ public final class GenTextures {
         for (Dough dough : DOUGHS) {
             ImageIO.write(atlas(dough), "png", new File(entityDir, dough.name() + ".png"));
         }
+        ImageIO.write(atlas(RAW), "png", new File(entityDir, RAW.name() + ".png"));
+        ImageIO.write(doughLump(), "png", new File(itemDir, "dough.png"));
+        ImageIO.write(rawKolobok(), "png", new File(itemDir, "raw_kolobok.png"));
         ImageIO.write(spawnEgg(DOUGHS[0]), "png", new File(itemDir, "kolobok_spawn_egg.png"));
         ImageIO.write(rollingPin(), "png", new File(itemDir, "rolling_pin.png"));
         ImageIO.write(songbook(), "png", new File(itemDir, "songbook.png"));
-        System.out.println("Wrote " + DOUGHS.length + " atlases, the spawn egg, the rolling pin and the songbook to " + root);
+        System.out.println("Wrote " + DOUGHS.length + " atlases, the raw dough, the spawn egg, the rolling pin, the songbook,"
+                + " the dough and the raw Kolobok to " + root);
+    }
+
+    /**
+     * Тесто: a soft lump of dough, wider than tall and sagging, dusted with flour, lit from the
+     * upper left.
+     */
+    static BufferedImage doughLump() {
+        return blob((x, y) -> {
+            double nx = (x - 8.0) / 6.6, ny = (y - 10.2) / 4.4;
+            // A rounded top that rises a little left of the middle, a flat bottom.
+            double hump = (y - 7.6 + 0.08 * (x - 6.5) * (x - 6.5)) / 3.6;
+            return y <= 13 && nx * nx + ny * ny <= 1.0 && (y >= 10 || hump >= -1.0);
+        }, 11);
+    }
+
+    /** Сырой колобок: a pale round ball of dough with no face yet. */
+    static BufferedImage rawKolobok() {
+        return blob((x, y) -> {
+            double dx = x - 8.0, dy = y - 8.5;
+            return dx * dx + dy * dy <= 5.8 * 5.8;
+        }, 12);
+    }
+
+    interface Shape {
+        boolean inside(double x, double y);
+    }
+
+    /** A pale floury item sprite of that shape, with a darker outline and light from the upper left. */
+    static BufferedImage blob(Shape shape, long seed) {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Random random = new Random(seed);
+        int[][] colour = new int[16][16];
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (!shape.inside(x + 0.5, y + 0.5)) {
+                    continue;
+                }
+                float lit = (float) Math.clamp((16.0 - x - y) / 16.0, -0.6, 0.6);
+                int c = mix(RAW.side(), lit > 0 ? 0xFFFFFF : RAW.top(), Math.abs(lit) * 0.55F);
+                if (random.nextFloat() < 0.1F) {
+                    c = RAW.dust();
+                }
+                colour[y][x] = 0xFF000000 | shade(c, 0.97F + random.nextFloat() * 0.06F);
+            }
+        }
+        int outline = 0xFF000000 | shade(RAW.crumb(), 0.72F);
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (colour[y][x] != 0) {
+                    img.setRGB(x, y, colour[y][x]);
+                } else if (touches(colour, x, y)) {
+                    img.setRGB(x, y, outline);
+                }
+            }
+        }
+        return img;
     }
 
     /**

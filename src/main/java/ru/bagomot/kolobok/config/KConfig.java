@@ -75,6 +75,8 @@ public final class KConfig {
     public static final class Server {
         /** Milk tames an untamed Kolobok with a chance of one in this many. */
         public int tameChanceDenominator = 3;
+        /** Foxes hunt Kolobki and carry them off, as in the tale. */
+        public boolean foxHunting = true;
     }
 
     /** How Kolobok talks to this player. */

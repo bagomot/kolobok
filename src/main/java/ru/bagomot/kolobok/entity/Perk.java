@@ -4,13 +4,14 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * What Kolobok learns by getting away from a mob: every verse of the song about a vanilla mob that
- * has a perk brings it. The effects live in {@link KolobokEntity}; this is only the list, free of
- * game classes so that tests can read it.
+ * has a perk brings it, and the fox's, which is never sung about, comes of being rescued from one.
+ * The effects live in {@link KolobokEntity}; this is only the list, free of game classes so that
+ * tests can read it.
  */
 public enum Perk {
     /** «Заячья прыть»: +10 % speed. */
     RABBIT("minecraft:rabbit"),
-    /** «Ну, погоди!»: wolves no longer scare him (fears arrive with the fox). */
+    /** «Ну, погоди!»: wolves no longer scare him. */
     WOLF("minecraft:wolf"),
     /** «Косолапый»: +4 health. */
     POLAR_BEAR("minecraft:polar_bear"),
@@ -39,7 +40,9 @@ public enum Perk {
     /** «Кощеева закалка»: withering does nothing. */
     WITHER("minecraft:wither"),
     /** «Легенда»: a golden crust. */
-    ENDER_DRAGON("minecraft:ender_dragon");
+    ENDER_DRAGON("minecraft:ender_dragon"),
+    /** «Не на ту напала»: foxes no longer hunt him. Not a verse: berries out of a fox's mouth bring it. */
+    FOX("minecraft:fox");
 
     private static final Perk[] VALUES = values();
 

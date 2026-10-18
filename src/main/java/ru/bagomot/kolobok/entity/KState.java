@@ -4,7 +4,7 @@ package ru.bagomot.kolobok.entity;
  * What Kolobok is doing. Singing is not a state but an overlay on top of one.
  */
 public enum KState {
-    /** Fresh out of the stove, motionless on the hearth. */
+    /** Fresh out of the stove, motionless in the горнило until he cools. */
     HOT,
     COOLING,
     /** Not tamed: rolls away and sings. */
@@ -26,7 +26,9 @@ public enum KState {
     BOWLING,
     GUIDING,
     /** Cosplaying the Head from «Руслан и Людмила». */
-    HEAD_ACT;
+    HEAD_ACT,
+    /** Sitting in the горнило of a cold stove for a while; see {@link KolobokEntity#climbIntoOven}. */
+    IN_STOVE;
 
     private static final KState[] VALUES = values();
 

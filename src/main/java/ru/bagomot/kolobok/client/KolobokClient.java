@@ -4,7 +4,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import ru.bagomot.kolobok.config.KConfig;
@@ -175,8 +174,7 @@ public final class KolobokClient {
         if (volume <= 0.0F || entity.isSilent()) {
             return;
         }
-        entity.level().playLocalSound(entity.getX(), entity.getY() + 0.3, entity.getZ(),
-                KSounds.mumble(syllable), SoundSource.NEUTRAL, volume, pitch, false);
+        SongPlayer.voice(entity, KSounds.mumble(syllable), volume, pitch);
     }
 
     /**

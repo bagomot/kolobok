@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContex
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.BookViewScreen;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -100,8 +101,10 @@ public final class VersesVisualTest implements FabricClientGameTest {
             // «Killed», he gets away to his stove and lies on top of it.
             server.runCommand("damage " + K + " 100 minecraft:generic");
             context.waitTicks(3);
+            // In the middle of the front middle place, the first of the five.
             check(server, "resting on the stove", k -> k.isAlive() && k.getKState() == KState.RESTING
-                    && Math.abs(k.getY() - (MOUTH.getY() + 2)) < 0.01 && k.getMood() == Mood.SLEEP);
+                    && k.position().distanceTo(StovePattern.topSlots(MOUTH, Direction.SOUTH).getFirst()) < 0.01
+                    && k.getMood() == Mood.SLEEP);
             server.runCommand("damage " + K + " 5 minecraft:generic");
             context.waitTicks(2);
             check(server, "unhurt while resting", k -> k.getKState() == KState.RESTING);

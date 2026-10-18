@@ -6,6 +6,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -19,6 +20,8 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.stats.Stats;
 import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.tags.ItemTags;
+import net.minecraft.tags.TagKey;
 import net.minecraft.util.Mth;
 import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
@@ -32,7 +35,10 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.OwnableEntity;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.TamableAnimal;
@@ -50,27 +56,39 @@ import net.minecraft.world.entity.ai.goal.PanicGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.goal.SitWhenOrderedToGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.ai.targeting.TargetingConditions;
+import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.animal.feline.Cat;
 import net.minecraft.world.entity.animal.fox.Fox;
+import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
+import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Witch;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
 import ru.bagomot.kolobok.Kolobok;
+import ru.bagomot.kolobok.block.StoveBlockEntity;
 import ru.bagomot.kolobok.block.StovePart;
 import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.block.StovePattern;
 import ru.bagomot.kolobok.config.KConfig;
+import ru.bagomot.kolobok.entity.ai.CatOnStoveGoal;
+import ru.bagomot.kolobok.entity.ai.Goals;
 import ru.bagomot.kolobok.entity.song.Phonetics;
 import ru.bagomot.kolobok.entity.song.Song;
 import ru.bagomot.kolobok.entity.song.SongText;
@@ -84,6 +102,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,10 +113,13 @@ import java.util.function.Consumer;
  * Колобок. A tamable pet that never really dies, sings his way out of trouble and rides on his
  * owner's shoulder.
  *
- * <p>He is born in the Russian stove: hot and asleep on the hearth, then, cooled, he opens his eyes
- * and rolls away from whoever is looking. Every twenty seconds of the chase his head spins and he
- * stops to sing a verse. A player who crouches beside him and keeps still for the whole verse has
- * listened; milk then may tame him, and every song listened to makes that likelier.
+ * <p>He is born in the горнило of a Russian stove: hot and asleep in there, then, cooled, he opens
+ * his eyes, hops out and rolls away from whoever is looking. Every twenty seconds of the chase his
+ * head spins and he stops to sing a verse. A player who crouches beside him and keeps still for the
+ * whole verse has listened; milk then may tame him, and every song listened to makes that likelier.
+ *
+ * <p>Tamed, he sometimes climbs into a cold, empty горнило and sits there a while. «Killed», he gets
+ * away to a free place on top of his stove.
  */
 public class KolobokEntity extends TamableAnimal {
 
@@ -163,13 +185,29 @@ public class KolobokEntity extends TamableAnimal {
     private static final double LISTEN_STILL = 0.1;
     /** …and settles down within this many ticks of the first note. */
     private static final int LISTEN_JOIN_TICKS = 20;
-    /** A tamed Kolobok sings on his own every three to six minutes. */
-    private static final int SONG_GAP_MIN = 3600;
-    private static final int SONG_GAP_MAX = 7200;
+    /** A tamed Kolobok sings on his own every eight to fifteen minutes, if anyone is there to hear. */
+    private static final int SONG_GAP_MIN = 9600;
+    private static final int SONG_GAP_MAX = 18000;
+    /** With nobody about, he looks again this much later. */
+    private static final int SONG_RETRY = 600;
+    /** Anyone this close is an audience; when the last of them leaves, he stops singing. */
+    private static final double AUDIENCE_RANGE = 12.0;
     /** In guard mode he walks back once he is this far from his post. */
     private static final double GUARD_RANGE = 3.0;
     /** Herobrine sneaks into one night song in fifty. */
     private static final float HEROBRINE_CHANCE = 0.02F;
+
+    /** A tamed Kolobok thinks about climbing into a горнило once every one to three minutes… */
+    private static final int VISIT_CHECK_MIN = 1200;
+    private static final int VISIT_CHECK_SPREAD = 2400;
+    /** …of a stove this close… */
+    private static final int VISIT_RANGE = 10;
+    /** …and sits in it for half a minute to two minutes. */
+    private static final int VISIT_MIN = 600;
+    private static final int VISIT_SPREAD = 1800;
+    /** Following, he climbs out once his owner is this far off. */
+    private static final double VISIT_OWNER_RANGE = 10.0;
+    private static final int HOP_TICKS = 10;
 
     /** After a «death» he lies on his stove for five minutes… */
     private static final int REST_TICKS = 6000;
@@ -183,6 +221,37 @@ public class KolobokEntity extends TamableAnimal {
     private static final double VERSE_DISTANCE = 16.0;
     /** …or the mob not having gone for him this long. */
     private static final int VERSE_LOST_TARGET = 100;
+    /** Each song, a monster within earshot is annoyed by it with this chance, any other mob with the less. */
+    private static final float ANNOY_MONSTER = 0.2F;
+    private static final float ANNOY_OTHER = 0.05F;
+    private static final double ANNOY_RANGE = 8.0;
+    /** An annoyed mob with no attack of its own chases him and butts him for this long… */
+    private static final int BUTT_TICKS = 200;
+    /** …a butt a second at most. */
+    private static final int BUTT_GAP = 20;
+    /** He draws a mob off his owner at most every half a minute, from this far. */
+    private static final int LURE_GAP = 600;
+    private static final double LURE_RANGE = 16.0;
+    /** The mob has to have hit the owner this recently. */
+    private static final int LURE_HIT_TICKS = 30;
+    /** He keeps away from mobs that are after him and from those that scare him. */
+    private static final double GET_AWAY_RANGE = 8.0;
+    private static final float FEAR_RANGE = 6.0F;
+    private static final TagKey<EntityType<?>> SCARES_KOLOBOK = TagKey.create(Registries.ENTITY_TYPE, Kolobok.id("scares_kolobok"));
+    /** In a fox's mouth for two minutes at most; then foxes leave him be for a minute. */
+    private static final int CAUGHT_TICKS = 2400;
+    private static final int FOX_SAFE_TICKS = 1200;
+    /** Berries this close to the fox make it drop him. */
+    private static final double BERRY_RANGE = 6.0;
+    /** As his song ends, a fox this close with its eye on him grabs him. */
+    private static final double FOX_GRAB_RANGE = 2.5;
+    /** Where he sits in a fox's jaws: in front of it, low. */
+    private static final double FOX_MOUTH_FORWARD = 0.62;
+    private static final double FOX_MOUTH_UP = 0.08;
+    /** Now and then he rolls up to a fox to say hello, as in the tale. */
+    private static final int FOX_CURIOSITY_CHANCE = 300;
+    private static final double FOX_CURIOSITY_RANGE = 12.0;
+
     /** «Тут как тут»: left this far behind, he turns up next to his owner. */
     private static final double ENDER_RANGE = 24.0;
     /** «Бессонница»: phantoms come for a player who has not slept for three days. */
@@ -223,6 +292,15 @@ public class KolobokEntity extends TamableAnimal {
 
     /** HOT: ticks until he has cooled. */
     private int hotTicks;
+    /** HOT or IN_STOVE: the mouth of the stove whose горнило he is in. */
+    private @Nullable BlockPos oven;
+    /** IN_STOVE: ticks left to sit there, and what he goes back to doing after. */
+    private int visitTicks;
+    private KState afterVisit = KState.FOLLOW;
+    private int nextVisitCheck;
+    /** A hop into or out of the горнило in progress, and its tick. Not saved: a hop is half a second. */
+    private @Nullable Hop hop;
+    private int hopTick;
     /** The mouth of the stove he was baked in, and its dimension: his home. */
     private @Nullable BlockPos home;
     private @Nullable ResourceKey<Level> homeDimension;
@@ -253,6 +331,21 @@ public class KolobokEntity extends TamableAnimal {
     /** A verse was earned: the whole song comes as soon as he can sing it. */
     private boolean newVerseToSing;
     private int nextPhantomWarning;
+    /** Mobs the song annoyed that have no attack of their own: they butt him until this game time. */
+    private final Map<UUID, Long> butting = new HashMap<>();
+    private long nextButt;
+    /** Mobs that have had their chance to be annoyed by the current song. */
+    private final Set<UUID> heardSong = new HashSet<>();
+    private int nextLure;
+    /** CAUGHT: ticks before he wriggles free himself, and what he goes back to. */
+    private int caughtTicks;
+    private KState afterCaught = KState.FOLLOW;
+    /** Foxes leave him be until this game time. */
+    private long foxSafeUntil;
+    /** «Не на ту напала»: once got out of a fox's mouth with berries. */
+    private boolean foxRescued;
+    /** Rolling up to a fox: he does not fear it for that while. */
+    private boolean curiousAboutFox;
     /** {@link #DATA_VERSES} parsed, and the string it was parsed from. */
     private String versesRaw = "";
     private List<String> verses = List.of();
@@ -262,6 +355,7 @@ public class KolobokEntity extends TamableAnimal {
         // Spread out, or every Kolobok loaded with the world speaks up on the same tick.
         nextIdleChatter = 200 + random.nextInt(1200);
         nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
+        nextVisitCheck = VISIT_CHECK_MIN + random.nextInt(VISIT_CHECK_SPREAD);
         setPersistenceRequired();
     }
 
@@ -391,7 +485,25 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     public boolean hasPerk(Perk perk) {
-        return verses().contains(perk.mob());
+        return perk == Perk.FOX ? foxRescued : verses().contains(perk.mob());
+    }
+
+    /**
+     * @return what he has learned, in the order he learned it; the fox's perk, which has no verse,
+     *         last. Server side: the fox's perk is not synced.
+     */
+    public List<Perk> perks() {
+        List<Perk> out = new ArrayList<>();
+        for (String mob : verses()) {
+            Perk perk = Perk.forMob(mob);
+            if (perk != null && perk != Perk.FOX) {
+                out.add(perk);
+            }
+        }
+        if (foxRescued) {
+            out.add(Perk.FOX);
+        }
+        return out;
     }
 
     /**
@@ -422,6 +534,9 @@ public class KolobokEntity extends TamableAnimal {
         KState state = getKState() == KState.ON_PLAYER ? KState.FOLLOW : getKState();
         output.putString("State", state.name());
         output.putInt("HotTicks", hotTicks);
+        output.storeNullable("Oven", BlockPos.CODEC, oven);
+        output.putInt("VisitTicks", visitTicks);
+        output.putString("AfterVisit", afterVisit.name());
         output.storeNullable("Home", BlockPos.CODEC, home);
         output.storeNullable("HomeDimension", Level.RESOURCE_KEY_CODEC, homeDimension);
         output.storeNullable("GuardPost", BlockPos.CODEC, guardPost);
@@ -429,6 +544,10 @@ public class KolobokEntity extends TamableAnimal {
         output.putInt("NextVerse", nextVerse);
         output.store("Verses", Codec.STRING.listOf(), verses());
         output.putInt("EscapeTicks", escapeTicks);
+        output.putInt("CaughtTicks", caughtTicks);
+        output.putString("AfterCaught", afterCaught.name());
+        output.putLong("FoxSafeUntil", foxSafeUntil);
+        output.putBoolean("FoxRescued", foxRescued);
     }
 
     @Override
@@ -445,6 +564,13 @@ public class KolobokEntity extends TamableAnimal {
         }
         setKState(state);
         hotTicks = input.getIntOr("HotTicks", 0);
+        oven = input.read("Oven", BlockPos.CODEC).orElse(null);
+        visitTicks = input.getIntOr("VisitTicks", 0);
+        try {
+            afterVisit = KState.valueOf(input.getStringOr("AfterVisit", KState.FOLLOW.name()));
+        } catch (IllegalArgumentException e) {
+            afterVisit = KState.FOLLOW;
+        }
         home = input.read("Home", BlockPos.CODEC).orElse(null);
         homeDimension = input.read("HomeDimension", Level.RESOURCE_KEY_CODEC).orElse(null);
         guardPost = input.read("GuardPost", BlockPos.CODEC).orElse(null);
@@ -453,6 +579,14 @@ public class KolobokEntity extends TamableAnimal {
         nextVerse = input.getIntOr("NextVerse", 1);
         entityData.set(DATA_VERSES, SongText.joinVerses(input.read("Verses", Codec.STRING.listOf()).orElse(List.of())));
         escapeTicks = input.getIntOr("EscapeTicks", 0);
+        caughtTicks = input.getIntOr("CaughtTicks", CAUGHT_TICKS);
+        try {
+            afterCaught = KState.valueOf(input.getStringOr("AfterCaught", KState.FOLLOW.name()));
+        } catch (IllegalArgumentException e) {
+            afterCaught = KState.FOLLOW;
+        }
+        foxSafeUntil = input.getLongOr("FoxSafeUntil", 0L);
+        foxRescued = input.getBooleanOr("FoxRescued", false);
         applyPerks();
     }
 
@@ -472,7 +606,7 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * Fresh out of the stove: hot, asleep on the hearth until he cools. The stove places him first.
+     * Fresh out of the oven: hot, asleep in the горнило until he cools. The stove places him first.
      *
      * @param stove the stove's mouth, from now on his home
      */
@@ -482,6 +616,7 @@ public class KolobokEntity extends TamableAnimal {
         setKState(KState.HOT);
         hotTicks = coolTicks;
         setHome(stove);
+        oven = stove.immutable();
         yBodyRot = getYRot();
         yHeadRot = getYRot();
     }
@@ -518,8 +653,20 @@ public class KolobokEntity extends TamableAnimal {
     protected void registerGoals() {
         goalSelector.addGoal(0, new FloatGoal(this));
         goalSelector.addGoal(1, new PanicGoal(this, 1.4));
+        goalSelector.addGoal(1, new GetAwayGoal());
         goalSelector.addGoal(2, new SitWhenOrderedToGoal(this));
         goalSelector.addGoal(3, new SingGoal());
+        goalSelector.addGoal(3, new AvoidEntityGoal<>(this, LivingEntity.class, FEAR_RANGE, 1.0, 1.3, this::fears) {
+            @Override
+            public boolean canUse() {
+                return keepsAway() && super.canUse();
+            }
+
+            @Override
+            public boolean canContinueToUse() {
+                return keepsAway() && super.canContinueToUse();
+            }
+        });
         goalSelector.addGoal(4, new AvoidEntityGoal<>(this, Player.class, 8.0F, 1.0, 1.25) {
             @Override
             public boolean canUse() {
@@ -543,6 +690,8 @@ public class KolobokEntity extends TamableAnimal {
             }
         });
         goalSelector.addGoal(5, new ReturnToPostGoal());
+        goalSelector.addGoal(5, new VisitStoveGoal());
+        goalSelector.addGoal(6, new FoxCuriosityGoal());
         goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.8) {
             @Override
             public boolean canUse() {
@@ -564,39 +713,49 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * While hot, resting, flat or on a player, the whole AI step is skipped: nothing may move him.
-     * Hot, he lies on the hearth; on a player, the server places him itself every tick.
+     * While hot, in the горнило, resting, flat, in a fox's mouth or on a player, the whole AI step is
+     * skipped: nothing may move him. In the горнило and on a player the server places him itself;
+     * a hop is placed tick by tick too.
      */
     @Override
     protected boolean isImmobile() {
-        return getKState() == KState.ON_PLAYER || isSheltered() || super.isImmobile();
-    }
-
-    /** Neither the world nor a push moves him: he is on a player or lying on the hearth. */
-    private boolean isPinned() {
-        KState state = getKState();
-        return state == KState.ON_PLAYER || state == KState.HOT;
+        return getKState() == KState.ON_PLAYER || isSheltered() || hop != null || super.isImmobile();
     }
 
     /**
-     * Hot on the hearth, resting on the stove or flat as a pancake: nothing but the void and
-     * {@code /kill} hurts him, and no mob sees him as a target.
+     * Neither the world nor a push moves him: he is on a player, in the горнило, or hopping in or
+     * out of it, through the stove's own blocks.
+     */
+    private boolean isPinned() {
+        KState state = getKState();
+        return state == KState.ON_PLAYER || state == KState.HOT || state == KState.IN_STOVE || hop != null;
+    }
+
+    /**
+     * Hot or sitting in the горнило, resting on the stove, flat as a pancake or in a fox's mouth:
+     * nothing but the void and {@code /kill} hurts him, and no mob sees him as a target.
      */
     public boolean isSheltered() {
         KState state = getKState();
-        return state == KState.HOT || state == KState.RESTING || state == KState.PANCAKE;
+        return state == KState.HOT || state == KState.IN_STOVE || state == KState.RESTING
+                || state == KState.PANCAKE || state == KState.CAUGHT;
     }
 
     // ------------------------------------------------------------------------------------ ticking
 
     @Override
     public void tick() {
+        if (hop != null && !level().isClientSide()) {
+            hopTick();
+        }
         noPhysics = isPinned();
         super.tick();
         if (level() instanceof ServerLevel serverLevel) {
             switch (getKState()) {
                 case ON_PLAYER -> carryTick();
-                case HOT -> hotTick();
+                case HOT -> hotTick(serverLevel);
+                case IN_STOVE -> visitTick(serverLevel);
+                case CAUGHT -> caughtTick(serverLevel);
                 case RUNAWAY -> chaseTick();
                 case RESTING -> restTick(serverLevel);
                 case PANCAKE -> pancakeTick(serverLevel);
@@ -613,12 +772,16 @@ public class KolobokEntity extends TamableAnimal {
             if (tickCount % 20 == 0) {
                 verseTick(serverLevel);
                 perkTick(serverLevel);
+                // The new verse waits for someone to sing it to.
+                if (newVerseToSing && !isSinging() && !isSheltered() && hasAudience(serverLevel)) {
+                    startSong(0, true);
+                }
             }
-            if (newVerseToSing && !isSinging() && !isSheltered()) {
-                startSong(0, true);
+            if (tickCount % 10 == 0) {
+                buttTick(serverLevel);
             }
             songTick(serverLevel);
-            idleSong();
+            idleSong(serverLevel);
             updateMood();
             idleChatter();
         } else {
@@ -631,6 +794,8 @@ public class KolobokEntity extends TamableAnimal {
         Mood mood;
         if (state == KState.HOT || state == KState.RESTING) {
             mood = Mood.SLEEP;
+        } else if (state == KState.CAUGHT) {
+            mood = Mood.SCARED;
         } else if (state == KState.PANCAKE) {
             mood = Mood.DIZZY;
         } else if (isSinging()) {
@@ -679,33 +844,163 @@ public class KolobokEntity extends TamableAnimal {
 
     // ------------------------------------------------------------------------------------ the stove
 
-    private void hotTick() {
-        // If the stove came apart under him, he is out in the world at once.
-        boolean stoveGone = tickCount % 20 == 0 && !homeStoveStands();
-        if (--hotTicks <= 0 || stoveGone) {
-            cool();
+    /**
+     * Hot in the горнило until he cools. If the stove came apart under him, he is out in the world at
+     * once.
+     */
+    private void hotTick(ServerLevel level) {
+        Direction facing = ovenFacing(level);
+        if (facing == null) {
+            dropOutOfStove(level, KState.RUNAWAY);
+            chaseTicks = CHASE_STOP_TICKS - FIRST_STOP_TICKS;
+            say("cooled");
+            return;
         }
-    }
-
-    private boolean homeStoveStands() {
-        if (home == null || !level().dimension().equals(homeDimension)) {
-            return false;
+        sitInOven(facing);
+        if (--hotTicks <= 0) {
+            cool(level, facing);
         }
-        BlockState state = level().getBlockState(home);
-        return state.getBlock() instanceof StovePartBlock && state.getValue(StovePartBlock.PART) == StovePart.MOUTH;
     }
 
     /**
-     * «Чё уставились?» He opens his eyes, hops off the hearth and the chase begins.
+     * @return the facing of the stove whose горнило he is in, if it still stands whole
      */
-    private void cool() {
+    private @Nullable Direction ovenFacing(ServerLevel level) {
+        if (oven == null || !level.isLoaded(oven)) {
+            return null;
+        }
+        BlockState state = level.getBlockState(oven);
+        if (!(state.getBlock() instanceof StovePartBlock) || state.getValue(StovePartBlock.PART) != StovePart.MOUTH) {
+            return null;
+        }
+        Direction facing = state.getValue(StovePartBlock.FACING);
+        return tickCount % 20 != 0 || StovePattern.isIntact(level, oven, facing) ? facing : null;
+    }
+
+    /** In the горнило, between hops: right in his place, looking out of the mouth. */
+    private void sitInOven(Direction facing) {
+        if (hop != null || oven == null) {
+            return;
+        }
+        Vec3 spot = StovePattern.gornilo(oven, facing);
+        setPos(spot.x, spot.y, spot.z);
+        setDeltaMovement(Vec3.ZERO);
+        face(facing.toYRot());
+    }
+
+    private void face(float yaw) {
+        setYRot(yaw);
+        yBodyRot = yaw;
+        yHeadRot = yaw;
+    }
+
+    /**
+     * «Чё уставились?» He opens his eyes, hops out of the горнило and the chase begins.
+     */
+    private void cool(ServerLevel level, Direction facing) {
         hotTicks = 0;
-        setKState(KState.RUNAWAY);
-        noPhysics = false;
-        Vec3 out = Vec3.directionFromRotation(0.0F, getYRot());
-        setDeltaMovement(out.x * 0.3, 0.3, out.z * 0.3);
+        if (!hopOut(level, facing, KState.RUNAWAY)) {
+            // Something blocks the mouth: he waits in there a little longer.
+            hotTicks = 40;
+            return;
+        }
         chaseTicks = CHASE_STOP_TICKS - FIRST_STOP_TICKS;
         say("cooled");
+    }
+
+    // ------------------------------------------------------------------------------------ the горнило
+
+    /**
+     * Climbs into that stove's горнило with a hop from the ground in front of it, to sit there a
+     * while. Called by the goal that walked him there.
+     */
+    void climbIntoOven(BlockPos mouth, Direction facing) {
+        afterVisit = getKState();
+        oven = mouth.immutable();
+        visitTicks = VISIT_MIN + random.nextInt(VISIT_SPREAD);
+        getNavigation().stop();
+        setKState(KState.IN_STOVE);
+        startHop(StovePattern.gornilo(mouth, facing), facing.getOpposite().toYRot());
+        say("in_stove");
+    }
+
+    private void visitTick(ServerLevel level) {
+        Direction facing = ovenFacing(level);
+        if (facing == null) {
+            dropOutOfStove(level, afterVisit);
+            return;
+        }
+        sitInOven(facing);
+        if (hop != null) {
+            return;
+        }
+        boolean ownerLeft = afterVisit == KState.FOLLOW && getOwner() instanceof Player owner
+                && (owner.level() != level || distanceToSqr(owner) > VISIT_OWNER_RANGE * VISIT_OWNER_RANGE);
+        if (--visitTicks <= 0 || ownerLeft) {
+            if (!hopOut(level, facing, afterVisit)) {
+                visitTicks = 40;
+            }
+        }
+    }
+
+    /**
+     * Out of the горнило, hopping onto the ground in front of the stove.
+     *
+     * @return {@code false} when the way out is blocked
+     */
+    private boolean hopOut(ServerLevel level, Direction facing, KState then) {
+        Vec3 out = Vec3.atBottomCenterOf(StovePattern.front(oven, facing));
+        if (!level.noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(out))) {
+            return false;
+        }
+        setKState(then);
+        oven = null;
+        startHop(out, facing.toYRot());
+        return true;
+    }
+
+    /**
+     * The stove came apart around him: he is put down in front of where its mouth was, or on top of
+     * the blocks if the front is blocked.
+     */
+    private void dropOutOfStove(ServerLevel level, KState then) {
+        hop = null;
+        BlockPos mouth = oven != null ? oven : blockPosition();
+        oven = null;
+        setKState(then);
+        noPhysics = false;
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            Vec3 spot = Vec3.atBottomCenterOf(mouth.relative(side));
+            if (level.noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(spot))) {
+                setPos(spot.x, spot.y, spot.z);
+                return;
+            }
+        }
+        Vec3 top = Vec3.atBottomCenterOf(mouth.above(2));
+        setPos(top.x, top.y, top.z);
+    }
+
+    private void startHop(Vec3 to, float yaw) {
+        hop = new Hop(position(), to, HOP_TICKS, 0.4);
+        hopTick = 0;
+        face(yaw);
+        noPhysics = true;
+    }
+
+    private void hopTick() {
+        hop.place(this, ++hopTick);
+        if (hop.done(hopTick)) {
+            hop = null;
+            noPhysics = isPinned();
+        }
+    }
+
+    /**
+     * @return whether he sits in a горнило now, or is hopping in or out
+     */
+    public boolean isInOven() {
+        KState state = getKState();
+        return state == KState.HOT || state == KState.IN_STOVE;
     }
 
     /**
@@ -751,16 +1046,27 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * A tamed Kolobok sings the whole song every few minutes, unless he is asleep.
+     * A tamed Kolobok sings the whole song every eight to fifteen minutes, unless he is asleep or
+     * there is nobody about to hear it; then he tries again a little later.
      */
-    private void idleSong() {
+    private void idleSong(ServerLevel level) {
         if (!isTame() || --nextSong > 0) {
             return;
         }
-        nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
-        if (!isSinging() && getMood() != Mood.SLEEP && !isSheltered()) {
-            startSong(0);
+        if (isSinging() || getMood() == Mood.SLEEP || isSheltered() || !hasAudience(level)) {
+            nextSong = SONG_RETRY;
+            return;
         }
+        nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
+        startSong(0);
+    }
+
+    /**
+     * @return whether anyone is about to hear him: a player or any mob
+     */
+    private boolean hasAudience(ServerLevel level) {
+        return !level.getEntitiesOfClass(LivingEntity.class, getBoundingBox().inflate(AUDIENCE_RANGE),
+                e -> e != this && e.isAlive() && (e instanceof Player player ? !player.isSpectator() : e instanceof Mob)).isEmpty();
     }
 
     /**
@@ -794,6 +1100,7 @@ public class KolobokEntity extends TamableAnimal {
         songEnd = now + composeSong().ticks();
         listeners.clear();
         fidgeted.clear();
+        heardSong.clear();
         getNavigation().stop();
     }
 
@@ -837,9 +1144,226 @@ public class KolobokEntity extends TamableAnimal {
             finishSong(level);
             return;
         }
+        int elapsed = now - getSingStart();
         if (!isTame()) {
-            followListeners(level, now - getSingStart());
+            followListeners(level, elapsed);
         }
+        if (elapsed % 20 == 10) {
+            if (!hasAudience(level)) {
+                stopSong();
+                say("alone");
+                return;
+            }
+            annoyListeners(level);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------ annoying
+
+    /**
+     * Not everyone likes the song. Once per song, every mob within earshot may take offence: a
+     * monster one time in five, any other mob one in twenty.
+     */
+    private void annoyListeners(ServerLevel level) {
+        for (Mob mob : level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(ANNOY_RANGE),
+                mob -> mob.getTarget() == null && mayProvoke(mob))) {
+            if (!heardSong.add(mob.getUUID())) {
+                continue;
+            }
+            if (random.nextFloat() < (mob instanceof Enemy ? ANNOY_MONSTER : ANNOY_OTHER)) {
+                provoke(level, mob);
+            }
+        }
+    }
+
+    /**
+     * @return whether he can set that mob on himself: not his own kind, not a fox (foxes hunt him
+     *         anyway), not a boss, not his owner's pet, and not a mob run by a brain, whose
+     *         targets live elsewhere
+     */
+    private boolean mayProvoke(Mob mob) {
+        if (mob == this || !mob.isAlive() || mob.isNoAi() || mob instanceof KolobokEntity || mob instanceof Fox
+                || mob instanceof WitherBoss || mob instanceof EnderDragon || !Goals.runsOnGoals(mob)) {
+            return false;
+        }
+        return !(mob instanceof OwnableEntity pet && getOwner() != null && pet.getOwner() == getOwner());
+    }
+
+    /**
+     * The mob goes for him: one that can attack, by targeting him; one that cannot, by chasing him
+     * and butting. Either way, if he gets away from it, it is a verse.
+     */
+    private void provoke(ServerLevel level, Mob mob) {
+        if (mob instanceof Enemy || mob.getAttribute(Attributes.ATTACK_DAMAGE) != null) {
+            // As if he had hit it: the mob's own «who hurt me» goal, which comes before its others,
+            // keeps him as the target instead of letting it go back to whoever it was after.
+            mob.setLastHurtByMob(this);
+            mob.setTarget(this);
+        } else {
+            butting.put(mob.getUUID(), level.getGameTime() + BUTT_TICKS);
+        }
+        noteAttacker(level, mob);
+        level.sendParticles(ParticleTypes.ANGRY_VILLAGER, mob.getX(), mob.getEyeY() + 0.4, mob.getZ(), 1, 0.0, 0.0, 0.0, 0.0);
+    }
+
+    /**
+     * @return whether that mob is after him: aiming at him, or set on butting him
+     */
+    private boolean isAfterMe(Mob mob) {
+        return mob.getTarget() == this || butting.containsKey(mob.getUUID());
+    }
+
+    /** Annoyed mobs that cannot attack run after him and butt him. */
+    private void buttTick(ServerLevel level) {
+        if (butting.isEmpty()) {
+            return;
+        }
+        long now = level.getGameTime();
+        Iterator<Map.Entry<UUID, Long>> it = butting.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, Long> entry = it.next();
+            if (!(level.getEntity(entry.getKey()) instanceof Mob mob) || !mob.isAlive() || now > entry.getValue()
+                    || mob.distanceToSqr(this) > VERSE_DISTANCE * VERSE_DISTANCE || isSheltered()
+                    || getKState() == KState.ON_PLAYER) {
+                it.remove();
+                continue;
+            }
+            mob.getNavigation().moveTo(this, 1.25);
+            if (mob.distanceToSqr(this) < 1.5 * 1.5 && now >= nextButt && mob.hasLineOfSight(this)) {
+                nextButt = now + BUTT_GAP;
+                mob.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+                hurtServer(level, damageSources().mobAttack(mob), 1.0F);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------------------ fears and the fox
+
+    /**
+     * @return whether he runs from that: a fox, a wild wolf, a hare, a polar bear or a witch (the
+     *         tag), unless he has a verse about that mob already. A fox he does not see while he
+     *         sings, nor while he rolls up to one, nor ever after he was rescued from one.
+     */
+    private boolean fears(LivingEntity entity) {
+        if (!entity.is(SCARES_KOLOBOK) || verses().contains(EntityType.getKey(entity.getType()).toString())) {
+            return false;
+        }
+        if (entity instanceof TamableAnimal pet && pet.isTame()) {
+            return false;
+        }
+        if (entity instanceof Fox) {
+            return !isSinging() && !curiousAboutFox && !hasPerk(Perk.FOX);
+        }
+        return true;
+    }
+
+    /**
+     * @return whether he is free to run from what is after him or scares him
+     */
+    private boolean keepsAway() {
+        KState state = getKState();
+        return (state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD || state == KState.RUNAWAY)
+                && hop == null && !isSinging();
+    }
+
+    /**
+     * @return whether a fox may go for him now
+     */
+    public boolean foxMayHunt() {
+        return KConfig.server().foxHunting && !isSheltered() && getKState() != KState.ON_PLAYER && hop == null
+                && !isPassenger() && !hasPerk(Perk.FOX) && level().getGameTime() >= foxSafeUntil;
+    }
+
+    /**
+     * In the fox's jaws. The fox goes on with its own business, carrying him, until berries tempt it,
+     * it jumps into water, or two minutes pass and he wriggles out himself. No verse: the fox is
+     * never sung about.
+     */
+    private void getCaught(Fox fox) {
+        if (isSinging()) {
+            stopSong();
+        }
+        getNavigation().stop();
+        dizzyTicks = 0;
+        charmedTicks = 0;
+        KState state = getKState();
+        afterCaught = !isTame() ? KState.RUNAWAY
+                : state == KState.SIT || state == KState.GUARD || state == KState.WANDER ? state : KState.FOLLOW;
+        startRiding(fox, true, true);
+        fox.setTarget(null);
+        setKState(KState.CAUGHT);
+        caughtTicks = CAUGHT_TICKS;
+        say("caught");
+    }
+
+    private void caughtTick(ServerLevel level) {
+        if (!(getVehicle() instanceof Fox fox) || !fox.isAlive()) {
+            letGo(level, null, false);
+            return;
+        }
+        if (--caughtTicks <= 0 || fox.isInWater() || fox.isInLava()) {
+            letGo(level, fox, false);
+            return;
+        }
+        if (tickCount % 10 != 0) {
+            return;
+        }
+        boolean berries = fox.getItemBySlot(EquipmentSlot.MAINHAND).is(ItemTags.FOX_FOOD)
+                || !level.getEntitiesOfClass(ItemEntity.class, fox.getBoundingBox().inflate(BERRY_RANGE),
+                item -> item.getItem().is(ItemTags.FOX_FOOD)).isEmpty();
+        if (berries) {
+            letGo(level, fox, true);
+        }
+    }
+
+    /**
+     * Out of the fox's mouth, with a hop away from it.
+     *
+     * @param rescued whether berries did it, which earns «Не на ту напала» the first time
+     */
+    private void letGo(ServerLevel level, @Nullable Fox fox, boolean rescued) {
+        stopRiding();
+        setKState(afterCaught);
+        foxSafeUntil = level.getGameTime() + FOX_SAFE_TICKS;
+        if (fox != null) {
+            fox.setTarget(null);
+            Vec3 away = position().subtract(fox.position()).multiply(1.0, 0.0, 1.0);
+            if (away.lengthSqr() < 1.0E-4) {
+                away = Vec3.directionFromRotation(0.0F, fox.getYRot());
+            }
+            away = away.normalize().scale(0.45);
+            setDeltaMovement(away.x, 0.4, away.z);
+        }
+        if (rescued && !foxRescued) {
+            foxRescued = true;
+            if (getOwner() instanceof ServerPlayer owner) {
+                owner.sendSystemMessage(Component.translatable("kolobok.verse.perk",
+                        Component.translatable(Perk.FOX.key()), Component.translatable(Perk.FOX.key() + ".desc")));
+            }
+        }
+        say(rescued ? "rescued" : "fox_escape");
+    }
+
+    /**
+     * In a fox's jaws: in front of it and low, turning with it.
+     */
+    @Override
+    public Vec3 getVehicleAttachmentPoint(Entity vehicle) {
+        if (vehicle instanceof Fox fox) {
+            Vec3 mouth = fox.position()
+                    .add(Vec3.directionFromRotation(0.0F, fox.yBodyRot).scale(FOX_MOUTH_FORWARD))
+                    .add(0.0, FOX_MOUTH_UP, 0.0);
+            return vehicle.getPassengerRidingPosition(this).subtract(mouth);
+        }
+        return super.getVehicleAttachmentPoint(vehicle);
+    }
+
+    /**
+     * A rider mob steers its vehicle in vanilla; a fox carrying him must go on steering itself.
+     */
+    @Override
+    public boolean canControlVehicle() {
+        return !(getVehicle() instanceof Fox) && super.canControlVehicle();
     }
 
     /**
@@ -866,6 +1390,15 @@ public class KolobokEntity extends TamableAnimal {
     private void finishSong(ServerLevel level) {
         Set<UUID> heard = new HashSet<>(listeners.keySet());
         stopSong();
+        // «И от тебя уйду!» — and a fox that crept up while he sang has him, without a word.
+        if (foxMayHunt()) {
+            Fox fox = level.getNearestEntity(Fox.class, TargetingConditions.forNonCombat().ignoreLineOfSight(), this,
+                    getX(), getY(), getZ(), getBoundingBox().inflate(FOX_GRAB_RANGE));
+            if (fox != null && fox.getTarget() == this && !fox.isSleeping()) {
+                getCaught(fox);
+                return;
+            }
+        }
         if (isTame() || heard.isEmpty()) {
             return;
         }
@@ -885,12 +1418,29 @@ public class KolobokEntity extends TamableAnimal {
      */
     @Override
     public void die(DamageSource source) {
-        if (level() instanceof ServerLevel serverLevel && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
-            setHealth(1.0F);
-            escape(serverLevel);
-            return;
+        if (level() instanceof ServerLevel serverLevel) {
+            if (!source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
+                setHealth(1.0F);
+                escape(serverLevel);
+                return;
+            }
+            leaveHomeForGood(serverLevel);
         }
         super.die(source);
+    }
+
+    /**
+     * Really gone: his stove forgets him, so his place on it is free and it can bake another. The
+     * stove may be far off and unloaded; its chunk is loaded for this, once.
+     */
+    private void leaveHomeForGood(ServerLevel level) {
+        if (home == null || homeDimension == null) {
+            return;
+        }
+        ServerLevel homeLevel = level.getServer().getLevel(homeDimension);
+        if (homeLevel != null && homeLevel.getBlockEntity(home) instanceof StoveBlockEntity stove) {
+            stove.forget(getUUID());
+        }
     }
 
     private void escape(ServerLevel level) {
@@ -909,14 +1459,13 @@ public class KolobokEntity extends TamableAnimal {
         setDeltaMovement(Vec3.ZERO);
         resetFallDistance();
 
+        hop = null;
+        oven = null;
         Direction stove = homeStove(level);
-        Vec3 bench = stove == null ? null : StovePattern.bench(home, stove);
-        if (bench != null && level.noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(bench))) {
+        Vec3 bench = stove == null ? null : placeOnStove(level, stove);
+        if (bench != null) {
             teleportTo(bench.x, bench.y, bench.z);
-            float yaw = stove.toYRot();
-            setYRot(yaw);
-            yBodyRot = yaw;
-            yHeadRot = yaw;
+            face(stove.toYRot());
             setKState(KState.RESTING);
             escapeTicks = REST_TICKS;
             addEffect(new MobEffectInstance(MobEffects.REGENERATION, 600, 0));
@@ -930,6 +1479,37 @@ public class KolobokEntity extends TamableAnimal {
             loseTargets(level);
             say("pancake");
         }
+    }
+
+    /**
+     * Picks his place on top of his stove: the first free one of the five, front middle first. The
+     * stove has to remember him, or take him in if it has room (it does not remember Kolobki baked
+     * before it was last built). With every other place taken, a cat sitting on one is shooed off.
+     *
+     * @return the middle of the place, or {@code null} if the stove has no place for him
+     */
+    private @Nullable Vec3 placeOnStove(ServerLevel level, Direction facing) {
+        if (!(level.getBlockEntity(home) instanceof StoveBlockEntity stove) || !stove.adopt(getUUID())) {
+            return null;
+        }
+        List<Vec3> places = StovePattern.topSlots(home, facing);
+        for (Vec3 place : places) {
+            if (!CatOnStoveGoal.isTaken(level, place, this)) {
+                return place;
+            }
+        }
+        for (Vec3 place : places) {
+            List<Cat> cats = level.getEntitiesOfClass(Cat.class, new AABB(place, place).inflate(0.4, 0.6, 0.4));
+            if (!cats.isEmpty()) {
+                for (Cat cat : cats) {
+                    CatOnStoveGoal.shoo(cat, place);
+                }
+                say("shoo");
+                return place;
+            }
+        }
+        // Only someone else's Kolobok climbing about up there: share.
+        return places.getFirst();
     }
 
     /**
@@ -1006,7 +1586,16 @@ public class KolobokEntity extends TamableAnimal {
      * A mob hit him and he has no verse about it yet: if he gets away, he will have.
      */
     private void noteAttacker(ServerLevel level, DamageSource source) {
-        if (!(source.getEntity() instanceof Mob mob) || mob instanceof Fox || mob instanceof KolobokEntity) {
+        if (source.getEntity() instanceof Mob mob) {
+            noteAttacker(level, mob);
+        }
+    }
+
+    /**
+     * That mob is after him, by a hit, by his song or because he drew it off his owner.
+     */
+    private void noteAttacker(ServerLevel level, Mob mob) {
+        if (mob instanceof Fox || mob instanceof KolobokEntity) {
             return;
         }
         String type = EntityType.getKey(mob.getType()).toString();
@@ -1041,7 +1630,7 @@ public class KolobokEntity extends TamableAnimal {
         if (!(level.getEntity(attacker) instanceof Mob mob) || !mob.isAlive()) {
             away = true;
         } else {
-            if (mob.getTarget() == this) {
+            if (isAfterMe(mob)) {
                 attackerAimed = now;
             }
             away = mob.distanceToSqr(this) >= VERSE_DISTANCE * VERSE_DISTANCE || now - attackerAimed >= VERSE_LOST_TARGET;
@@ -1060,7 +1649,8 @@ public class KolobokEntity extends TamableAnimal {
      * @return whether the verse is new
      */
     public boolean learnVerse(String mob) {
-        if (level().isClientSide() || SongText.HEROBRINE.equals(mob) || verses().contains(mob)) {
+        // Herobrine is a rumour, and the fox is never sung about.
+        if (level().isClientSide() || SongText.HEROBRINE.equals(mob) || Perk.FOX.mob().equals(mob) || verses().contains(mob)) {
             return false;
         }
         List<String> next = new ArrayList<>(verses());
@@ -1117,6 +1707,7 @@ public class KolobokEntity extends TamableAnimal {
         if (!(getOwner() instanceof ServerPlayer owner) || owner.level() != level) {
             return;
         }
+        lureTick(level, owner);
         KState state = getKState();
         if (hasPerk(Perk.ENDERMAN) && (state == KState.FOLLOW || state == KState.WANDER)
                 && distanceToSqr(owner) > ENDER_RANGE * ENDER_RANGE) {
@@ -1134,6 +1725,28 @@ public class KolobokEntity extends TamableAnimal {
             nextPhantomWarning = tickCount + PHANTOM_WARNING_GAP;
             say("phantoms");
         }
+    }
+
+    /**
+     * A mob has just hit his owner: he calls it off onto himself — «Эй, я вкуснее!» — and rolls away
+     * from it. If he gets away, it is a verse like any other.
+     */
+    private void lureTick(ServerLevel level, ServerPlayer owner) {
+        KState state = getKState();
+        if (tickCount < nextLure || !(state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD) || hop != null
+                || distanceToSqr(owner) > LURE_RANGE * LURE_RANGE) {
+            return;
+        }
+        if (!(owner.getLastHurtByMob() instanceof Mob mob) || owner.tickCount - owner.getLastHurtByMobTimestamp() > LURE_HIT_TICKS
+                || mob.getTarget() == this || mob.distanceToSqr(this) > LURE_RANGE * LURE_RANGE || !mayProvoke(mob)) {
+            return;
+        }
+        nextLure = tickCount + LURE_GAP;
+        if (isSinging()) {
+            stopSong();
+        }
+        provoke(level, mob);
+        say("lure");
     }
 
     /**
@@ -1362,6 +1975,24 @@ public class KolobokEntity extends TamableAnimal {
             }
             return InteractionResult.SUCCESS;
         }
+        // Called out of the горнило: he comes out and follows. Nothing else changes his state in there.
+        if (getKState() == KState.IN_STOVE && owner && (stack.isEmpty() || stack.is(KItems.ROLLING_PIN.get()))) {
+            if (level() instanceof ServerLevel serverLevel && hop == null) {
+                afterVisit = KState.FOLLOW;
+                visitTicks = 0;
+                Direction facing = ovenFacing(serverLevel);
+                if (facing != null && hopOut(serverLevel, facing, KState.FOLLOW)) {
+                    say("stove_out");
+                }
+            }
+            return InteractionResult.SUCCESS;
+        }
+        if (getKState() == KState.CAUGHT) {
+            if (!level().isClientSide()) {
+                say("caught");
+            }
+            return InteractionResult.SUCCESS;
+        }
         if (stack.is(KItems.SONGBOOK.get())) {
             return writeSongbook(stack, owner);
         }
@@ -1498,6 +2129,11 @@ public class KolobokEntity extends TamableAnimal {
             return false;
         }
         boolean bypass = source.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
+        // A fox's bite is no wound: it carries him off.
+        if (!bypass && source.getEntity() instanceof Fox fox && foxMayHunt()) {
+            getCaught(fox);
+            return false;
+        }
         // Fresh from the oven nothing hurts him, and whoever hits him burns a hand.
         if (getKState() == KState.HOT && !bypass) {
             if (source.getDirectEntity() instanceof Player player) {
@@ -1620,6 +2256,185 @@ public class KolobokEntity extends TamableAnimal {
         public void start() {
             Vec3 post = Vec3.atBottomCenterOf(guardPost);
             getNavigation().moveTo(post.x, post.y, post.z, 1.0);
+        }
+    }
+
+    /**
+     * Runs from a mob that is after him: one his song annoyed, one he drew off his owner, or any
+     * other with its eye on him.
+     */
+    private final class GetAwayGoal extends Goal {
+
+        private @Nullable Mob from;
+
+        GetAwayGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            if (tickCount % 5 != 0 || !keepsAway() || !(level() instanceof ServerLevel level)) {
+                return false;
+            }
+            from = level.getNearestEntity(level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(GET_AWAY_RANGE),
+                    mob -> mob.isAlive() && isAfterMe(mob)), getX(), getY(), getZ());
+            if (from == null) {
+                return false;
+            }
+            Vec3 away = DefaultRandomPos.getPosAway(KolobokEntity.this, 12, 6, from.position());
+            if (away == null || from.distanceToSqr(away) < from.distanceToSqr(KolobokEntity.this)) {
+                return false;
+            }
+            return getNavigation().moveTo(away.x, away.y, away.z, 1.35);
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return keepsAway() && from != null && from.isAlive() && !getNavigation().isDone();
+        }
+
+        @Override
+        public void stop() {
+            from = null;
+        }
+    }
+
+    /**
+     * Tamed, he now and then climbs into the горнило of a cold, empty stove nearby and sits there a
+     * while. Following, only while his owner is close.
+     */
+    private final class VisitStoveGoal extends Goal {
+
+        private static final int WALK_TICKS = 200;
+
+        private @Nullable StoveBlockEntity stove;
+        private int giveUp;
+
+        VisitStoveGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.JUMP));
+        }
+
+        private boolean visiting() {
+            KState state = getKState();
+            return isTame() && (state == KState.FOLLOW || state == KState.WANDER) && !isSinging() && hop == null;
+        }
+
+        @Override
+        public boolean canUse() {
+            if (tickCount < nextVisitCheck || !visiting() || !onGround()) {
+                return false;
+            }
+            nextVisitCheck = tickCount + VISIT_CHECK_MIN + random.nextInt(VISIT_CHECK_SPREAD);
+            if (getKState() == KState.FOLLOW
+                    && !(getOwner() instanceof Player owner && distanceToSqr(owner) < 8.0 * 8.0)) {
+                return false;
+            }
+            for (StoveBlockEntity candidate : StovePattern.nearby(level(), blockPosition(), VISIT_RANGE)) {
+                if (canVisit(candidate)) {
+                    stove = candidate;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private boolean canVisit(StoveBlockEntity candidate) {
+            BlockPos mouth = candidate.getBlockPos();
+            Direction facing = candidate.facing();
+            if (!candidate.canTakeVisitor() || !StovePattern.isIntact(level(), mouth, facing)) {
+                return false;
+            }
+            BlockPos front = StovePattern.front(mouth, facing);
+            if (!level().noCollision(KolobokEntity.this, getDimensions(Pose.STANDING).makeBoundingBox(Vec3.atBottomCenterOf(front)))) {
+                return false;
+            }
+            var path = getNavigation().createPath(front, 0);
+            return path != null && path.canReach();
+        }
+
+        @Override
+        public void start() {
+            giveUp = WALK_TICKS;
+            walk();
+        }
+
+        private void walk() {
+            Vec3 front = Vec3.atBottomCenterOf(StovePattern.front(stove.getBlockPos(), stove.facing()));
+            getNavigation().moveTo(front.x, front.y, front.z, 1.0);
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return stove != null && giveUp > 0 && visiting() && stove.canTakeVisitor();
+        }
+
+        @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
+        }
+
+        @Override
+        public void tick() {
+            giveUp--;
+            Vec3 front = Vec3.atBottomCenterOf(StovePattern.front(stove.getBlockPos(), stove.facing()));
+            if (onGround() && position().multiply(1, 0, 1).distanceToSqr(front.multiply(1, 0, 1)) < 0.3 * 0.3
+                    && Math.abs(getY() - front.y) < 0.5) {
+                climbIntoOven(stove.getBlockPos(), stove.facing());
+                stove = null;
+            } else if (getNavigation().isDone()) {
+                walk();
+            }
+        }
+
+        @Override
+        public void stop() {
+            stove = null;
+            if (getKState() != KState.IN_STOVE) {
+                getNavigation().stop();
+            }
+        }
+    }
+
+    /**
+     * As in the tale, he is not afraid of the fox at first: now and then he rolls up to one to say
+     * hello. Rare: a check a second, one in three hundred.
+     */
+    private final class FoxCuriosityGoal extends Goal {
+
+        private @Nullable Fox fox;
+
+        FoxCuriosityGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            KState state = getKState();
+            if (tickCount % 20 != 0 || !(level() instanceof ServerLevel level) || !foxMayHunt() || isSinging() || random.nextInt(FOX_CURIOSITY_CHANCE) != 0
+                    || !(state == KState.FOLLOW || state == KState.WANDER || state == KState.RUNAWAY)) {
+                return false;
+            }
+            fox = level.getNearestEntity(Fox.class, TargetingConditions.forNonCombat(), KolobokEntity.this,
+                    getX(), getY(), getZ(), getBoundingBox().inflate(FOX_CURIOSITY_RANGE));
+            return fox != null;
+        }
+
+        @Override
+        public void start() {
+            curiousAboutFox = true;
+            getNavigation().moveTo(fox, 0.9);
+            say("fox_lure");
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return fox != null && fox.isAlive() && foxMayHunt() && !getNavigation().isDone() && distanceToSqr(fox) > 2.0 * 2.0;
+        }
+
+        @Override
+        public void stop() {
+            curiousAboutFox = false;
+            fox = null;
         }
     }
 }

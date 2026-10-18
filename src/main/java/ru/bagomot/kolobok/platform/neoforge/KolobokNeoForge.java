@@ -3,10 +3,13 @@ package ru.bagomot.kolobok.platform.neoforge;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.registries.RegisterEvent;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.entity.KolobokEntity;
+import ru.bagomot.kolobok.event.KolobokEvents;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KRegistry;
 
@@ -22,6 +25,11 @@ public final class KolobokNeoForge {
         modBus.addListener(RegisterEvent.class, KolobokNeoForge::register);
         modBus.addListener(EntityAttributeCreationEvent.class,
                 event -> event.put(KEntities.KOLOBOK.get(), KolobokEntity.createAttributes().build()));
+        NeoForge.EVENT_BUS.addListener(EntityJoinLevelEvent.class, event -> {
+            if (!event.getLevel().isClientSide()) {
+                KolobokEvents.onEntityLoad(event.getEntity());
+            }
+        });
     }
 
     private static void register(RegisterEvent event) {

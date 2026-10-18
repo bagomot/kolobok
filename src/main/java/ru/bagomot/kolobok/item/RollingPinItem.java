@@ -25,7 +25,8 @@ import ru.bagomot.kolobok.block.StovePattern;
 /**
  * Бабушкина скалка, the remote control for everything. Hits like a wooden sword, but knocks back.
  *
- * <p>Shift and right-click on a furnace builds the Russian stove around it. Right-click on one's own
+ * <p>Shift and right-click on a furnace builds the Russian stove around it; at the crafting table it
+ * rolls dough into a raw Kolobok and stays in the grid. Right-click on one's own
  * Kolobok switches his mode; that click is handled by Kolobok himself.
  */
 public class RollingPinItem extends Item {

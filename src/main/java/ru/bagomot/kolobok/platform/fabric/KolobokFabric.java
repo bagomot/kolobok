@@ -1,11 +1,13 @@
 package ru.bagomot.kolobok.platform.fabric;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.entity.KolobokEntity;
+import ru.bagomot.kolobok.event.KolobokEvents;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KRegistry;
 
@@ -22,6 +24,7 @@ public final class KolobokFabric implements ModInitializer {
             registerAll(catalogue);
         }
         FabricDefaultAttributeRegistry.register(KEntities.KOLOBOK.get(), KolobokEntity.createAttributes());
+        ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> KolobokEvents.onEntityLoad(entity));
     }
 
     private static <T> void registerAll(KRegistry<T> catalogue) {

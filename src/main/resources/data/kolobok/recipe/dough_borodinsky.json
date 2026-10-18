@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "group": "kolobok_dough",
+  "ingredients": [
+    "minecraft:wheat",
+    "minecraft:wheat",
+    "minecraft:wheat",
+    "#minecraft:eggs",
+    "minecraft:milk_bucket",
+    "minecraft:cocoa_beans"
+  ],
+  "result": {
+    "components": {
+      "kolobok:dough": "borodinsky"
+    },
+    "id": "kolobok:dough"
+  }
+}

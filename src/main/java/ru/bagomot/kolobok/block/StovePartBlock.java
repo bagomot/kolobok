@@ -51,8 +51,14 @@ public class StovePartBlock extends BaseEntityBlock {
     public static final EnumProperty<Direction> FACING = BlockStateProperties.HORIZONTAL_FACING;
     public static final BooleanProperty LIT = BlockStateProperties.LIT;
 
-    /** Shapes as the model draws them, for a stove facing north, then turned for every facing. */
+    /**
+     * Outlines as the model draws them, for a stove facing north, then turned for every facing. The
+     * openings of the подпечье and the горнило are cut out, so the crosshair reaches the logs, the
+     * bread and a Kolobok sitting inside.
+     */
     private static final Map<StovePart, Map<Direction, VoxelShape>> SHAPES = new EnumMap<>(StovePart.class);
+    /** Whatever the outline, the stove is solid to walk into, but for the narrow chimney. */
+    private static final Map<Direction, VoxelShape> CHIMNEY = Shapes.rotateHorizontal(northShape(StovePart.CHIMNEY));
 
     static {
         for (StovePart part : StovePart.values()) {
@@ -68,13 +74,22 @@ public class StovePartBlock extends BaseEntityBlock {
                 .setValue(LIT, false));
     }
 
-    /** The mouth's niche and the space under the stove are open; the chimney is a column. */
+    /**
+     * The подпечье and the bottom of the горнило open the mouth's block, the rest of the горнило the
+     * block above; the chimney is a column. The back of the горнило stays inside the outline: nothing
+     * there to point at.
+     */
     private static VoxelShape northShape(StovePart part) {
+        int floor = StovePattern.GORNILO_FLOOR;
         return switch (part) {
-            case MOUTH -> Shapes.join(Shapes.block(),
-                    Shapes.or(Block.box(2, StovePattern.HEARTH, 0, 14, 16, 10), Block.box(2, 3, 0, 14, 8, 6)),
+            case MOUTH -> Shapes.join(Shapes.block(), Shapes.or(
+                            Block.box(StovePattern.PODPECHYE_X0, StovePattern.PODPECHYE_Y0, 0,
+                                    StovePattern.PODPECHYE_X1, StovePattern.PODPECHYE_Y1 - 2, StovePattern.PODPECHYE_DEPTH),
+                            Block.box(StovePattern.GORNILO_X0, floor, 0, StovePattern.GORNILO_X1, 16, 16)),
                     BooleanOp.ONLY_FIRST);
-            case UPPER_FRONT_MIDDLE -> Shapes.join(Shapes.block(), Block.box(2, 0, 0, 14, 4, 10), BooleanOp.ONLY_FIRST);
+            case UPPER_FRONT_MIDDLE -> Shapes.join(Shapes.block(),
+                    Block.box(StovePattern.GORNILO_X0, 0, 0, StovePattern.GORNILO_X1, floor + StovePattern.GORNILO_HEIGHT - 16, 16),
+                    BooleanOp.ONLY_FIRST);
             case CHIMNEY -> Shapes.or(Block.box(3, 0, 3, 13, 16, 13), Block.box(2, 12, 2, 14, 16, 14));
             default -> Shapes.block();
         };
@@ -88,6 +103,11 @@ public class StovePartBlock extends BaseEntityBlock {
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
         return SHAPES.get(state.getValue(PART)).get(state.getValue(FACING));
+    }
+
+    @Override
+    protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return state.getValue(PART) == StovePart.CHIMNEY ? CHIMNEY.get(state.getValue(FACING)) : Shapes.block();
     }
 
     @Override
@@ -157,7 +177,8 @@ public class StovePartBlock extends BaseEntityBlock {
     // ------------------------------------------------------------------------------------ fire
 
     /**
-     * Flames and smoke deep in the mouth and the crackle of a vanilla furnace, while it burns.
+     * Flames over the coals at the back of the горнило, smoke drifting out of the чело and the
+     * crackle of a vanilla furnace, while it burns.
      */
     @Override
     public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
@@ -165,21 +186,18 @@ public class StovePartBlock extends BaseEntityBlock {
             return;
         }
         Direction facing = state.getValue(FACING);
-        // The firebox is four pixels behind the block's middle.
-        Vec3 fire = Vec3.atBottomCenterOf(pos).add(facing.getStepX() * -0.25, StovePattern.HEARTH / 16.0,
-                facing.getStepZ() * -0.25);
+        double across = StovePattern.GORNILO_X0 + 2 + random.nextDouble() * (StovePattern.GORNILO_X1 - StovePattern.GORNILO_X0 - 4);
+        double deep = StovePattern.COALS_FROM + random.nextDouble() * 8;
+        Vec3 fire = StovePattern.local(pos, facing, across, StovePattern.GORNILO_FLOOR + 1 + random.nextDouble() * 3, deep);
         if (random.nextDouble() < 0.1) {
             level.playLocalSound(fire.x, fire.y, fire.z, SoundEvents.FURNACE_FIRE_CRACKLE, SoundSource.BLOCKS,
                     1.0F, 1.0F, false);
         }
-        double side = random.nextDouble() * 0.3 - 0.15;
-        double x = fire.x + (facing.getAxis() == Direction.Axis.Z ? side : 0);
-        double z = fire.z + (facing.getAxis() == Direction.Axis.X ? side : 0);
-        double y = fire.y + random.nextDouble() * 0.25;
-        level.addParticle(ParticleTypes.FLAME, x, y, z, 0.0, 0.0, 0.0);
-        if (random.nextInt(3) == 0) {
-            level.addParticle(ParticleTypes.SMOKE, x + facing.getStepX() * 0.3, y + 0.2, z + facing.getStepZ() * 0.3,
-                    0.0, 0.0, 0.0);
+        level.addParticle(ParticleTypes.FLAME, fire.x, fire.y, fire.z, 0.0, 0.0, 0.0);
+        if (random.nextInt(4) == 0) {
+            Vec3 smoke = StovePattern.local(pos, facing, across, StovePattern.GORNILO_FLOOR + StovePattern.GORNILO_HEIGHT - 2, 1);
+            level.addParticle(ParticleTypes.SMOKE, smoke.x, smoke.y, smoke.z,
+                    facing.getStepX() * 0.01, 0.02, facing.getStepZ() * 0.01);
         }
     }
 }

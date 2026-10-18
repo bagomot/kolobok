@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "group": "kolobok_dough",
+  "ingredients": [
+    "minecraft:wheat",
+    "#minecraft:eggs",
+    "minecraft:milk_bucket"
+  ],
+  "result": {
+    "components": {
+      "kolobok:dough": "mini"
+    },
+    "id": "kolobok:dough"
+  }
+}

@@ -6,10 +6,9 @@
     "soot": "kolobok:block/stove_soot",
     "dark": "kolobok:block/stove_dark",
     "brick": "minecraft:block/bricks",
-    "ember": "minecraft:block/campfire_log_lit",
-    "fire": "minecraft:block/campfire_fire",
-    "log": "minecraft:block/oak_log",
-    "log_top": "minecraft:block/oak_log_top"
+    "ember": "minecraft:block/magma",
+    "ash": "kolobok:block/stove_ash",
+    "fire": "minecraft:block/campfire_fire"
   },
   "elements": [
     {"from": [0, 0, 16], "to": [16, 11, 16], "faces": {"south": {"texture": "#plaster", "cullface": "south"}}},

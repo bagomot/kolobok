@@ -2,6 +2,7 @@ package ru.bagomot.kolobok.block;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
@@ -12,10 +13,14 @@ import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import ru.bagomot.kolobok.registry.KBlocks;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Where the thirteen blocks of the stove stand, and turning vanilla blocks into the stove and back.
@@ -25,10 +30,19 @@ import ru.bagomot.kolobok.registry.KBlocks;
  */
 public final class StovePattern {
 
-    /** Height of the hearth inside the mouth's niche, in pixels. */
-    static final int HEARTH = 9;
-    /** How far into the niche a fresh Kolobok sits, in pixels from the front face. */
-    private static final int HEARTH_DEPTH = 5;
+    // The front of the stove in pixels of the mouth's block, as tools/stove draws it: x across the
+    // front from the onlooker's right, y up, z into the stove from its front face.
+    /** The подпечье, where the firewood lies. */
+    public static final int PODPECHYE_X0 = 2, PODPECHYE_X1 = 14, PODPECHYE_Y0 = 2, PODPECHYE_Y1 = 10;
+    public static final int PODPECHYE_DEPTH = 13;
+    /** The под, the горнило's floor, level with the шесток. */
+    public static final int GORNILO_FLOOR = 13;
+    /** The горнило's opening, across and up from the под. */
+    public static final int GORNILO_X0 = 1, GORNILO_X1 = 15, GORNILO_HEIGHT = 12;
+    /** Where bread stands in the горнило, its middle this deep from the front face; the coals lie behind. */
+    public static final int GORNILO_SPOT = 9;
+    /** The coals start this deep. */
+    public static final int COALS_FROM = 17;
     /** Glass this close to the stove is a window: a fresh Kolobok cools on it four times faster. */
     private static final int WINDOW_REACH = 2;
 
@@ -160,22 +174,107 @@ public final class StovePattern {
     }
 
     /**
-     * @return where a freshly baked Kolobok sits: on the hearth inside the mouth's niche
+     * @return a point of the mouth's block given in the pixels above, turned to the stove's facing
      */
-    public static Vec3 hearth(BlockPos mouth, Direction facing) {
-        double out = 0.5 - HEARTH_DEPTH / 16.0;
-        return new Vec3(mouth.getX() + 0.5 + facing.getStepX() * out, mouth.getY() + HEARTH / 16.0,
-                mouth.getZ() + 0.5 + facing.getStepZ() * out);
+    public static Vec3 local(BlockPos mouth, Direction facing, double x, double y, double z) {
+        Direction back = facing.getOpposite();
+        Direction left = back.getCounterClockWise();
+        // From the block's middle: x counts from the onlooker's right edge, z from the front face.
+        double across = x / 16.0 - 0.5;
+        double in = z / 16.0 - 0.5;
+        return new Vec3(mouth.getX() + 0.5 + left.getStepX() * across + back.getStepX() * in,
+                mouth.getY() + y / 16.0,
+                mouth.getZ() + 0.5 + left.getStepZ() * across + back.getStepZ() * in);
     }
 
     /**
-     * @return the лежанка, where a «killed» Kolobok rests: the middle of the stove's top, between
-     *         the front and back rows
+     * @return where bread bakes and a Kolobok sits in the горнило: on the под, at its front, with the
+     *         coals behind
      */
-    public static Vec3 bench(BlockPos mouth, Direction facing) {
-        Direction back = facing.getOpposite();
-        return new Vec3(mouth.getX() + 0.5 + back.getStepX() * 0.5, mouth.getY() + 2,
-                mouth.getZ() + 0.5 + back.getStepZ() * 0.5);
+    public static Vec3 gornilo(BlockPos mouth, Direction facing) {
+        return local(mouth, facing, 8, GORNILO_FLOOR, GORNILO_SPOT);
+    }
+
+    /**
+     * @return the space at the front of the горнило where a Kolobok fits
+     */
+    public static AABB gorniloSpace(BlockPos mouth, Direction facing) {
+        Vec3 spot = gornilo(mouth, facing);
+        return new AABB(spot.x - 0.35, spot.y, spot.z - 0.35, spot.x + 0.35, spot.y + GORNILO_HEIGHT / 16.0, spot.z + 0.35);
+    }
+
+    /**
+     * @return the block in front of the mouth, from which one hops into the горнило and onto which
+     *         one hops out
+     */
+    public static BlockPos front(BlockPos mouth, Direction facing) {
+        return mouth.relative(facing);
+    }
+
+    /** The parts whose tops are the places on the stove: all but the one under the chimney. */
+    public static final List<StovePart> TOP = List.of(StovePart.UPPER_FRONT_MIDDLE, StovePart.UPPER_FRONT_LEFT,
+            StovePart.UPPER_FRONT_RIGHT, StovePart.UPPER_BACK_MIDDLE, StovePart.UPPER_BACK_LEFT);
+
+    /**
+     * @return the five places on top of the stove, the middle of each free top block, front middle
+     *         first. A «killed» Kolobok rests on one of them, and a cat may take one.
+     */
+    public static List<Vec3> topSlots(BlockPos mouth, Direction facing) {
+        List<Vec3> slots = new ArrayList<>(TOP.size());
+        for (StovePart part : TOP) {
+            slots.add(Vec3.atBottomCenterOf(posOf(mouth, facing, part).above()));
+        }
+        return slots;
+    }
+
+    /**
+     * @return the ground beside the stove from which one jumps onto that top block: the outside
+     *         neighbours of the block below it, at floor level
+     */
+    public static List<BlockPos> beside(BlockPos mouth, Direction facing, StovePart top) {
+        BlockPos below = posOf(mouth, facing, top).below();
+        List<BlockPos> out = new ArrayList<>(2);
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            BlockPos pos = below.relative(side);
+            if (!isFootprint(mouth, facing, pos)) {
+                out.add(pos);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * @return the loaded stoves whose mouths are within that many blocks
+     */
+    public static List<StoveBlockEntity> nearby(Level level, BlockPos centre, int radius) {
+        List<StoveBlockEntity> out = new ArrayList<>();
+        int minX = SectionPos.blockToSectionCoord(centre.getX() - radius);
+        int maxX = SectionPos.blockToSectionCoord(centre.getX() + radius);
+        int minZ = SectionPos.blockToSectionCoord(centre.getZ() - radius);
+        int maxZ = SectionPos.blockToSectionCoord(centre.getZ() + radius);
+        for (int cx = minX; cx <= maxX; cx++) {
+            for (int cz = minZ; cz <= maxZ; cz++) {
+                if (!level.hasChunk(cx, cz)) {
+                    continue;
+                }
+                for (BlockEntity blockEntity : level.getChunk(cx, cz).getBlockEntities().values()) {
+                    if (blockEntity instanceof StoveBlockEntity stove && !stove.isRemoved()
+                            && stove.getBlockPos().closerThan(centre, radius)) {
+                        out.add(stove);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean isFootprint(BlockPos mouth, Direction facing, BlockPos pos) {
+        for (StovePart part : StovePart.values()) {
+            if (part.layer() == 0 && posOf(mouth, facing, part).equals(pos)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

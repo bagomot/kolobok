@@ -17,6 +17,9 @@
             "ru.bagomot.kolobok.platform.fabric.KolobokFabricClient"
         ]
     },
+    "mixins": [
+        "kolobok.mixins.json"
+    ],
     "depends": {
         "fabricloader": "${loader_range}",
         "fabric-api": "*",

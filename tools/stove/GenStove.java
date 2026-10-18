@@ -22,17 +22,40 @@ import java.util.Random;
  * merged into rectangles. Faces between two parts never exist, so the blocks join seamlessly, and
  * textures tile per block because element UVs follow their position.
  *
- * <p>The look follows the songbook prototype: whitewashed, a red painted band under the top, the
- * arched mouth with a sooty hearth, the firebox glowing behind it when lit, firewood stored
- * underneath, two small niches in the front and a chimney with a brick cap over the back right.
+ * <p>The look is a whitewashed Russian stove with a red painted band under the top, and its front is
+ * split the traditional way. Low down is the подпечье, a small dark arch where the firewood is kept
+ * (the logs themselves are drawn by the block entity's renderer, in the wood that was put there).
+ * Above it the шесток juts out, and over the шесток the arched чело opens into the горнило, the oven
+ * chamber, which runs deep into the back row: bread bakes at its front, the coals lie at the back
+ * and glow when it burns. Two small niches flank the чело, and the chimney with a brick cap stands
+ * over the back right.
+ *
+ * <p>The parts the горнило runs through have a lit model too, in which the coals glow, a flame
+ * stands over them and the sooty lining is lit by the fire.
  */
 public final class GenStove {
 
     static final int W = 48, H = 48, D = 32;
 
-    // Materials. EMBER is the firebox floor of the lit model; the unlit one shows DARK there.
-    static final int AIR = 0, PLASTER = 1, ORNAMENT = 2, SOOT = 3, DARK = 4, BRICK = 5, EMBER = 6;
-    static final String[] TEXTURE = {null, "plaster", "ornament", "soot", "dark", "brick", "ember"};
+    // The front, in pixels of the whole stove (the floor is y = 0, the front face z = 0). The block
+    // code places things by the same numbers: StovePattern and StovePartBlock.
+    static final int PODPECHYE_X0 = 18, PODPECHYE_X1 = 30, PODPECHYE_Y0 = 2, PODPECHYE_Y1 = 10;
+    static final int PODPECHYE_DEPTH = 13;
+    /** The под, the горнило's floor, level with the шесток. */
+    static final int GORNILO_FLOOR = 13;
+    static final int CHELO_DEPTH = 3;
+    static final int GORNILO_BACK = 28;
+    /** Bread stands in front of this; the coals lie behind it. */
+    static final int COALS_FROM = 17;
+
+    // Materials. The coal bed is EMBER in the lit model and ASH in the cold one.
+    static final int AIR = 0, PLASTER = 1, ORNAMENT = 2, SOOT = 3, DARK = 4, BRICK = 5, EMBER = 6, ASH = 7;
+    static final String[] TEXTURE = {null, "plaster", "ornament", "soot", "dark", "brick", "ember", "ash"};
+    /** How bright the fire makes the sooty lining of the горнило in the lit model. */
+    static final int LINING_GLOW = 9;
+
+    /** The parts the горнило runs through: each has a lit model as well. */
+    static final List<String> LIT_PARTS = List.of("mouth", "upper_front_middle", "back_middle", "upper_back_middle");
 
     /** Parts in the order of StovePart, with their cell: column (−1 left … 1 right), row, layer. */
     static final Object[][] PARTS = {
@@ -55,16 +78,16 @@ public final class GenStove {
             int[][][] grid = build(lit);
             for (Object[] part : PARTS) {
                 String name = (String) part[0];
-                if (lit && !name.equals("mouth")) {
+                if (lit && !LIT_PARTS.contains(name)) {
                     continue;
                 }
                 int x0 = 16 * (1 - (int) part[1]), z0 = 16 * (int) part[2], y0 = 16 * (int) part[3];
-                List<String> elements = cellFaces(grid, x0, y0, z0);
+                List<String> elements = cellFaces(grid, x0, y0, z0, lit);
                 if (name.equals("mouth")) {
-                    elements.addAll(firewood());
-                    if (lit) {
-                        elements.add(fire());
-                    }
+                    elements.addAll(shestok());
+                }
+                if (lit && name.equals("back_middle")) {
+                    elements.add(fire());
                 }
                 write(new File(models, name + (lit ? "_lit" : "") + ".json"), model(elements));
             }
@@ -75,6 +98,7 @@ public final class GenStove {
         writeTexture(textures, "stove_ornament", GenStove::ornament);
         writeTexture(textures, "stove_soot", (x, y, r) -> vary(0x4A3B30, r, 0.10));
         writeTexture(textures, "stove_dark", (x, y, r) -> vary(0x1E0F07, r, 0.25));
+        writeTexture(textures, "stove_ash", GenStove::ash);
         System.out.println("Wrote the stove's models, blockstate and textures to " + assets);
     }
 
@@ -84,7 +108,7 @@ public final class GenStove {
         int[][][] g = new int[W][H][D];
         // Body, whitewashed over a brick plinth, with the red band near the top.
         fill(g, 0, 0, 0, W, 32, D, PLASTER);
-        fill(g, 0, 0, 0, W, 3, D, BRICK);
+        fill(g, 0, 0, 0, W, 2, D, BRICK);
         for (int x = 0; x < W; x++) {
             for (int y = 27; y < 30; y++) {
                 for (int z = 0; z < D; z++) {
@@ -94,26 +118,31 @@ public final class GenStove {
                 }
             }
         }
-        // Under the stove: a dark space for firewood.
-        fill(g, 18, 3, 0, 30, 8, 6, AIR);
-        line(g, 17, 2, 0, 31, 9, 7, DARK);
-        // The mouth: an arched niche with the hearth for its floor, sooty inside and above.
-        fill(g, 18, 9, 0, 30, 20, 10, AIR);
-        fill(g, 19, 20, 0, 29, 21, 10, AIR);
-        fill(g, 21, 21, 0, 27, 22, 10, AIR);
-        line(g, 17, 8, 0, 31, 23, 11, SOOT);
-        fill(g, 19, 22, 0, 29, 26, 1, SOOT);
-        fill(g, 20, 26, 0, 28, 27, 1, SOOT);
-        // Deep in the mouth, the firebox.
-        fill(g, 21, 9, 10, 27, 16, 14, AIR);
-        line(g, 20, 8, 10, 28, 17, 15, DARK);
-        if (lit) {
-            fill(g, 21, 8, 10, 27, 9, 14, EMBER);
+        // Подпечье: a low dark arch for the firewood, at the bottom of the mouth's column.
+        arch(g, PODPECHYE_X0, PODPECHYE_X1, PODPECHYE_Y0, PODPECHYE_Y1, 0, PODPECHYE_DEPTH);
+        line(g, PODPECHYE_X0 - 1, PODPECHYE_Y0 - 1, 0, PODPECHYE_X1 + 1, PODPECHYE_Y1 + 1, PODPECHYE_DEPTH + 1, DARK);
+        // Чело: a wide shallow arch over the шесток, sooty round its rim…
+        arch(g, 15, 33, GORNILO_FLOOR, 27, 0, CHELO_DEPTH);
+        line(g, 14, GORNILO_FLOOR - 1, 0, 34, 27, CHELO_DEPTH, SOOT);
+        line(g, 15, 27, 1, 33, 28, CHELO_DEPTH, SOOT);
+        // …and behind it the горнило, a vaulted chamber that runs deep into the back row.
+        arch(g, 17, 31, GORNILO_FLOOR, 25, CHELO_DEPTH, GORNILO_BACK);
+        line(g, 16, GORNILO_FLOOR - 1, CHELO_DEPTH, 32, 26, GORNILO_BACK + 1, SOOT);
+        // The coals, raked to the back: glowing while it burns, grey ash once it is cold.
+        int coal = lit ? EMBER : ASH;
+        fill(g, 18, GORNILO_FLOOR, COALS_FROM, 30, GORNILO_FLOOR + 1, GORNILO_BACK, coal);
+        Random lumps = new Random(7);
+        for (int x = 18; x < 30; x++) {
+            for (int z = COALS_FROM + 1; z < GORNILO_BACK; z++) {
+                if (lumps.nextInt(3) == 0) {
+                    g[x][GORNILO_FLOOR + 1][z] = coal;
+                }
+            }
         }
-        // Two small niches in the front for drying mittens.
+        // Two small niches either side of the чело, for drying mittens.
         for (int x0 : new int[]{4, 40}) {
-            fill(g, x0, 20, 0, x0 + 4, 24, 3, AIR);
-            fill(g, x0, 20, 3, x0 + 4, 24, 4, DARK);
+            fill(g, x0, 17, 0, x0 + 4, 21, 3, AIR);
+            fill(g, x0, 17, 3, x0 + 4, 21, 4, DARK);
         }
         // The chimney over the back right, with a brick cap and the flue's dark mouth.
         fill(g, 3, 32, 19, 13, 48, 29, PLASTER);
@@ -121,6 +150,17 @@ public final class GenStove {
         fill(g, 5, 46, 21, 11, 48, 27, AIR);
         fill(g, 5, 45, 21, 11, 46, 27, DARK);
         return g;
+    }
+
+    /**
+     * Carves a round-topped opening: full width up to three pixels below the top, then narrower by
+     * one, two and four pixels a side.
+     */
+    static void arch(int[][][] g, int x0, int x1, int y0, int y1, int z0, int z1) {
+        fill(g, x0, y0, z0, x1, y1 - 3, z1, AIR);
+        fill(g, x0 + 1, y1 - 3, z0, x1 - 1, y1 - 2, z1, AIR);
+        fill(g, x0 + 2, y1 - 2, z0, x1 - 2, y1 - 1, z1, AIR);
+        fill(g, x0 + 4, y1 - 1, z0, x1 - 4, y1, z1, AIR);
     }
 
     static void fill(int[][][] g, int x0, int y0, int z0, int x1, int y1, int z1, int material) {
@@ -165,7 +205,7 @@ public final class GenStove {
     /**
      * Every exposed face of the cell's voxels, merged per plane and material into rectangles.
      */
-    static List<String> cellFaces(int[][][] g, int x0, int y0, int z0) {
+    static List<String> cellFaces(int[][][] g, int x0, int y0, int z0, boolean lit) {
         List<String> out = new ArrayList<>();
         for (Dir d : DIRS) {
             for (int k = 0; k < 16; k++) {
@@ -186,7 +226,7 @@ public final class GenStove {
                 boolean outer = (plane == 0 || plane == 16)
                         && !isStoveCell(x0 / 16 + d.nx, y0 / 16 + d.ny, z0 / 16 + d.nz);
                 for (int[] r : rectangles(mask)) {
-                    out.add(face(d, k, r[0], r[1], r[2], r[3], r[4], outer));
+                    out.add(face(d, k, r[0], r[1], r[2], r[3], r[4], outer, lit));
                 }
             }
         }
@@ -248,7 +288,7 @@ public final class GenStove {
         return false;
     }
 
-    static String face(Dir d, int k, int a0, int b0, int a1, int b1, int material, boolean outer) {
+    static String face(Dir d, int k, int a0, int b0, int a1, int b1, int material, boolean outer, boolean lit) {
         // The face of voxel layer k lies on its near side for a negative normal, far side otherwise.
         int plane = (d.nx + d.ny + d.nz) < 0 ? k : k + 1;
         int[] from, to;
@@ -263,27 +303,31 @@ public final class GenStove {
             to = new int[]{a1, plane, b1};
         }
         String cull = outer ? ", \"cullface\": \"" + d.name + "\"" : "";
-        String glow = material == EMBER ? ", \"light_emission\": 15" : "";
+        int light = material == EMBER ? 15 : lit && material == SOOT ? LINING_GLOW : 0;
+        String glow = light > 0 ? ", \"light_emission\": " + light : "";
         return "{\"from\": " + vec(from) + ", \"to\": " + vec(to) + glow
                 + ", \"faces\": {\"" + d.name + "\": {\"texture\": \"#" + TEXTURE[material] + "\"" + cull + "}}}";
     }
 
-    /** Two logs stored under the stove, their ends to the front. */
-    static List<String> firewood() {
-        List<String> out = new ArrayList<>();
-        for (int x : new int[]{3, 8}) {
-            out.add("{\"from\": [" + x + ", 3, 1], \"to\": [" + (x + 4) + ", 7, 5], \"faces\": {"
-                    + "\"north\": {\"uv\": [0, 0, 16, 16], \"texture\": \"#log_top\"},"
-                    + "\"east\": {\"uv\": [0, 0, 4, 4], \"texture\": \"#log\"},"
-                    + "\"west\": {\"uv\": [0, 0, 4, 4], \"texture\": \"#log\"},"
-                    + "\"up\": {\"uv\": [0, 0, 4, 4], \"texture\": \"#log\"}}}");
-        }
-        return out;
+    /**
+     * The шесток: a whitewashed ledge level with the под, jutting three pixels out of the front under
+     * the чело. It overhangs the mouth's block, so it is an element of its own.
+     */
+    static List<String> shestok() {
+        String plaster = "{\"texture\": \"#plaster\"}";
+        return List.of("{\"from\": [-2, 11, -3], \"to\": [18, " + GORNILO_FLOOR + ", 0], \"faces\": {"
+                + "\"north\": " + plaster + ", \"up\": " + plaster + ", \"down\": " + plaster + ","
+                + " \"east\": " + plaster + ", \"west\": " + plaster + "}}");
     }
 
-    /** The flames in the firebox, facing out of the mouth. */
+    /**
+     * The flames over the coals at the back of the горнило, facing out of the mouth. They belong to
+     * the back middle block and rise past its top into the vault.
+     */
     static String fire() {
-        return "{\"from\": [5, 9, 12.5], \"to\": [11, 16, 12.5], \"light_emission\": 15, \"shade\": false,"
+        int z = (COALS_FROM + GORNILO_BACK) / 2 - 16;
+        return "{\"from\": [3, " + (GORNILO_FLOOR + 1) + ", " + z + "], \"to\": [13, " + (GORNILO_FLOOR + 9) + ", " + z
+                + "], \"light_emission\": 15, \"shade\": false,"
                 + " \"faces\": {\"north\": {\"uv\": [0, 0, 16, 16], \"texture\": \"#fire\"}}}";
     }
 
@@ -299,10 +343,9 @@ public final class GenStove {
         textures.put("soot", "kolobok:block/stove_soot");
         textures.put("dark", "kolobok:block/stove_dark");
         textures.put("brick", "minecraft:block/bricks");
-        textures.put("ember", "minecraft:block/campfire_log_lit");
+        textures.put("ember", "minecraft:block/magma");
+        textures.put("ash", "kolobok:block/stove_ash");
         textures.put("fire", "minecraft:block/campfire_fire");
-        textures.put("log", "minecraft:block/oak_log");
-        textures.put("log_top", "minecraft:block/oak_log_top");
         StringBuilder sb = new StringBuilder("{\n  \"textures\": {\n");
         int i = 0;
         for (Map.Entry<String, String> e : textures.entrySet()) {
@@ -324,7 +367,7 @@ public final class GenStove {
             for (boolean lit : new boolean[]{false, true}) {
                 for (Object[] part : PARTS) {
                     String name = (String) part[0];
-                    String model = "kolobok:block/stove/" + name + (lit && name.equals("mouth") ? "_lit" : "");
+                    String model = "kolobok:block/stove/" + name + (lit && LIT_PARTS.contains(name) ? "_lit" : "");
                     variants.add("    \"facing=" + facing + ",lit=" + lit + ",part=" + name + "\": {\"model\": \""
                             + model + "\"" + (y != 0 ? ", \"y\": " + y : "") + "}");
                 }
@@ -380,6 +423,11 @@ public final class GenStove {
             default -> false;
         };
         return red ? vary(PAINT_RED, random, 0.06) : plaster(x, y, random);
+    }
+
+    /** Grey wood ash with darker cinders. */
+    static int ash(int x, int y, Random random) {
+        return random.nextInt(5) == 0 ? vary(0x3A3532, random, 0.2) : vary(0x7A746E, random, 0.12);
     }
 
     static int vary(int c, Random random, double amount) {

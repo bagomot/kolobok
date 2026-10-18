@@ -2,14 +2,18 @@ package ru.bagomot.kolobok.block;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StovePatternTest {
@@ -51,14 +55,50 @@ class StovePatternTest {
 
     @ParameterizedTest
     @EnumSource(value = Direction.class, names = {"NORTH", "EAST", "SOUTH", "WEST"})
-    void theBenchIsOnTopBetweenTheRowsAndClearOfTheChimney(Direction facing) {
-        var bench = StovePattern.bench(MOUTH, facing);
-        var box = StovePattern.bounds(MOUTH, facing);
-        assertEquals(MOUTH.getY() + 2, bench.y, 1e-9, "on the top of the two layers");
-        BlockPos front = StovePattern.posOf(MOUTH, facing, StovePart.UPPER_FRONT_MIDDLE);
-        BlockPos back = StovePattern.posOf(MOUTH, facing, StovePart.UPPER_BACK_MIDDLE);
-        assertEquals((front.getX() + back.getX()) / 2.0 + 0.5, bench.x, 1e-9);
-        assertEquals((front.getZ() + back.getZ()) / 2.0 + 0.5, bench.z, 1e-9);
-        assertTrue(box.contains(bench.x, bench.y - 0.01, bench.z), "above the stove, not beside it");
+    void fivePlacesOnTopInTheMiddlesOfTheBlocksAndNoneUnderTheChimney(Direction facing) {
+        List<Vec3> places = StovePattern.topSlots(MOUTH, facing);
+        assertEquals(5, places.size());
+        assertEquals(5, new HashSet<>(places).size(), "two places in one");
+        BlockPos chimney = StovePattern.posOf(MOUTH, facing, StovePart.CHIMNEY);
+        AABB box = StovePattern.bounds(MOUTH, facing);
+        for (Vec3 place : places) {
+            assertEquals(MOUTH.getY() + 2, place.y, 1e-9, "on the top of the two layers");
+            assertEquals(0.5, place.x - Math.floor(place.x), 1e-9, "in the middle of a block");
+            assertEquals(0.5, place.z - Math.floor(place.z), 1e-9, "in the middle of a block");
+            assertTrue(box.contains(place.x, place.y - 0.01, place.z), "above the stove, not beside it");
+            assertNotEquals(chimney, BlockPos.containing(place), "in the chimney");
+        }
+        assertEquals(Vec3.atBottomCenterOf(MOUTH.above(2)), places.getFirst(), "front middle first");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Direction.class, names = {"NORTH", "EAST", "SOUTH", "WEST"})
+    void pixelsCountFromTheOnlookersRightAndInwardFromTheFrontFace(Direction facing) {
+        Vec3 bottom = Vec3.atBottomCenterOf(MOUTH);
+        Vec3 out = Vec3.atLowerCornerOf(facing.getUnitVec3i()).scale(0.5);
+        assertVec(bottom.add(out), StovePattern.local(MOUTH, facing, 8, 0, 0), "middle of the front face");
+        assertVec(bottom.subtract(out), StovePattern.local(MOUTH, facing, 8, 0, 16), "middle of the back face");
+        // Facing the stove, one's left hand is the stove's clockwise side.
+        Vec3 left = Vec3.atLowerCornerOf(facing.getClockWise().getUnitVec3i()).scale(0.5);
+        assertVec(bottom.add(out).add(left), StovePattern.local(MOUTH, facing, 16, 0, 0), "front left corner");
+        assertVec(bottom.add(0, 1, 0), StovePattern.local(MOUTH, facing, 8, 16, 8), "top middle");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Direction.class, names = {"NORTH", "EAST", "SOUTH", "WEST"})
+    void theKolobokSitsInTheGorniloAboveThePodpechyeWithTheCoalsBehindHim(Direction facing) {
+        Vec3 spot = StovePattern.gornilo(MOUTH, facing);
+        assertEquals(MOUTH, BlockPos.containing(spot), "in the mouth's block");
+        assertTrue(spot.y > MOUTH.getY() + StovePattern.PODPECHYE_Y1 / 16.0, "above the подпечье");
+        Vec3 coals = StovePattern.local(MOUTH, facing, 8, StovePattern.GORNILO_FLOOR, StovePattern.COALS_FROM);
+        Vec3 back = Vec3.atLowerCornerOf(facing.getOpposite().getUnitVec3i());
+        assertTrue(coals.subtract(spot).dot(back) > 0, "the coals are deeper in");
+        AABB space = StovePattern.gorniloSpace(MOUTH, facing);
+        assertTrue(space.contains(spot.add(0, 0.01, 0)), "his space is where he sits");
+        assertEquals(StovePattern.front(MOUTH, facing), MOUTH.relative(facing));
+    }
+
+    private static void assertVec(Vec3 expected, Vec3 actual, String what) {
+        assertEquals(0.0, expected.distanceTo(actual), 1e-9, what + ": " + actual);
     }
 }

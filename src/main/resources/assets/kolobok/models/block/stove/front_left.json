@@ -6,16 +6,21 @@
     "soot": "kolobok:block/stove_soot",
     "dark": "kolobok:block/stove_dark",
     "brick": "minecraft:block/bricks",
-    "ember": "minecraft:block/campfire_log_lit",
-    "fire": "minecraft:block/campfire_fire",
-    "log": "minecraft:block/oak_log",
-    "log_top": "minecraft:block/oak_log_top"
+    "ember": "minecraft:block/magma",
+    "ash": "kolobok:block/stove_ash",
+    "fire": "minecraft:block/campfire_fire"
   },
   "elements": [
-    {"from": [0, 0, 0], "to": [16, 3, 0], "faces": {"north": {"texture": "#brick", "cullface": "north"}}},
-    {"from": [0, 3, 0], "to": [16, 16, 0], "faces": {"north": {"texture": "#plaster", "cullface": "north"}}},
-    {"from": [16, 0, 0], "to": [16, 3, 16], "faces": {"east": {"texture": "#brick", "cullface": "east"}}},
-    {"from": [16, 3, 0], "to": [16, 16, 16], "faces": {"east": {"texture": "#plaster", "cullface": "east"}}},
-    {"from": [0, 0, 0], "to": [16, 0, 16], "faces": {"down": {"texture": "#brick", "cullface": "down"}}}
+    {"from": [0, 0, 0], "to": [16, 2, 0], "faces": {"north": {"texture": "#brick", "cullface": "north"}}},
+    {"from": [0, 2, 0], "to": [16, 12, 0], "faces": {"north": {"texture": "#plaster", "cullface": "north"}}},
+    {"from": [0, 12, 0], "to": [2, 13, 0], "faces": {"north": {"texture": "#soot", "cullface": "north"}}},
+    {"from": [2, 12, 0], "to": [16, 16, 0], "faces": {"north": {"texture": "#plaster", "cullface": "north"}}},
+    {"from": [1, 13, 0], "to": [2, 16, 0], "faces": {"north": {"texture": "#soot", "cullface": "north"}}},
+    {"from": [0, 13, 3], "to": [1, 16, 3], "faces": {"north": {"texture": "#plaster"}}},
+    {"from": [1, 13, 0], "to": [1, 16, 3], "faces": {"west": {"texture": "#soot"}}},
+    {"from": [16, 0, 0], "to": [16, 2, 16], "faces": {"east": {"texture": "#brick", "cullface": "east"}}},
+    {"from": [16, 2, 0], "to": [16, 16, 16], "faces": {"east": {"texture": "#plaster", "cullface": "east"}}},
+    {"from": [0, 0, 0], "to": [16, 0, 16], "faces": {"down": {"texture": "#brick", "cullface": "down"}}},
+    {"from": [0, 13, 0], "to": [1, 13, 3], "faces": {"up": {"texture": "#soot"}}}
   ]
 }

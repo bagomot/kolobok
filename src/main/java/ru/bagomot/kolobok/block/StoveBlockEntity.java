@@ -1,16 +1,24 @@
 package ru.bagomot.kolobok.block;
 
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.util.Mth;
 import net.minecraft.util.Prediction;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.Containers;
@@ -18,14 +26,19 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.entity.EntitySpawnReason;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.ItemStackTemplate;
 import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.CookingFuel;
+import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.item.crafting.SingleRecipeInput;
+import net.minecraft.world.item.crafting.SmokingRecipe;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.MoonPhase;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
@@ -35,82 +48,184 @@ import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
 import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.level.storage.loot.providers.number.ints.ResolvableInt;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Variant;
+import ru.bagomot.kolobok.item.DoughItem;
 import ru.bagomot.kolobok.registry.KBlockEntities;
 import ru.bagomot.kolobok.registry.KEntities;
+import ru.bagomot.kolobok.registry.KItems;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
- * The stove's insides, kept by the mouth: the kneading trough, the fire and the bread in the oven.
- * No screen: right-clicks put things in, an empty hand shows what is there above the hotbar, and
- * Shift with an empty hand takes the dough back out.
+ * The stove's insides, kept by the mouth: the firewood in the подпечье, whatever is in the горнило,
+ * the fire, and the Kolobki this stove has baked. No screen: right-clicks put things in, an empty
+ * hand takes out what is done and shows the rest above the hotbar, and Shift with an empty hand
+ * takes the firewood back.
  *
- * <p>Dough is wheat (three, or one for Колобочек), an egg and «сметанка» — a bucket of milk.
- * Cocoa beans make it borodinsky, a gold ingot golden. Once the dough is ready and the stove burns,
- * 30 seconds later a hot Kolobok sits on the hearth.
+ * <p>The подпечье holds up to a stack of logs of one kind. The stove burns them only when there is
+ * something to cook: whenever the fire runs low it takes the next log, which burns as long as it
+ * would in a furnace. The горнило takes one raw Kolobok, rolled from dough at the crafting table, or
+ * a stack of anything a smoker cooks; the whole stack cooks at once.
+ *
+ * <p>The top has room for five Kolobki, so a stove bakes five and no more: it remembers each one, and
+ * forgets one only when he is really gone (see {@link KolobokEntity#die}).
  */
 public class StoveBlockEntity extends BlockEntity {
 
     public static final int BAKE_TICKS = 600;
-    public static final int MAX_WHEAT = 3;
-    /** More fuel than this is refused: twenty minutes of fire. */
-    public static final int MAX_FUEL = 24000;
+    /**
+     * A whole stack cooks in the time a furnace takes over this many items. The recipe's time is the
+     * furnace's; a smoker runs it twice as fast.
+     */
+    public static final int COOK_FACTOR = 2;
+    public static final int MAX_KOLOBKI = 5;
     /** A fresh Kolobok cools for two minutes, or thirty seconds by a window. */
     public static final int COOL_TICKS = 2400;
     public static final int COOL_TICKS_BY_WINDOW = 600;
+    /** A stove that has burned stays warm this long: cats like it. */
+    public static final int WARM_TICKS = 6000;
 
-    private int wheat;
-    private boolean egg;
-    private boolean milk;
-    private boolean cocoa;
-    private boolean gold;
-    /** Ticks of fire left. */
-    private int fuel;
+    /** The подпечье: logs of one kind, up to a stack. */
+    private ItemStack logs = ItemStack.EMPTY;
+    /** The горнило: a raw Kolobok, food to cook, or the food once cooked. */
+    private ItemStack oven = ItemStack.EMPTY;
+    private boolean cooked;
+    /** Experience owed for the cooked food, paid when it is taken out. */
+    private float experience;
     private int progress;
-    /** Lava or a blaze rod went into the fire: whatever bakes now comes out burnt. */
+    private int total;
+    /** Ticks of fire left in the log that burns now. */
+    private int burn;
+    /** Lava or a blaze rod went in for heat: the Kolobok baking now comes out burnt. */
     private boolean tooHot;
+    /** When the fire last burned, for the warmth. */
+    private long lastBurned = Long.MIN_VALUE / 2;
+    /** The Kolobki this stove baked and has room for on top. */
+    private final List<UUID> kolobki = new ArrayList<>();
+
+    /** Client: game time the progress was last synced at, to run it on smoothly between syncs. */
+    private long syncedAt;
 
     public StoveBlockEntity(BlockPos pos, BlockState state) {
         super(KBlockEntities.STOVE.get(), pos, state);
     }
 
-    private Direction facing() {
+    public Direction facing() {
         return getBlockState().getValue(StovePartBlock.FACING);
     }
 
-    public boolean doughReady() {
-        return wheat > 0 && egg && milk;
+    public boolean isLit() {
+        return getBlockState().getValue(StovePartBlock.LIT);
+    }
+
+    public ItemStack logs() {
+        return logs;
+    }
+
+    public ItemStack oven() {
+        return oven;
+    }
+
+    public boolean isCooked() {
+        return cooked;
+    }
+
+    public boolean isTooHot() {
+        return tooHot;
+    }
+
+    /**
+     * @return how far the bread or food is, 0–1, running on between syncs while the fire burns
+     */
+    public float progress(float partialTick) {
+        if (total <= 0) {
+            return cooked ? 1.0F : 0.0F;
+        }
+        float done = progress;
+        if (level != null && level.isClientSide() && isLit()) {
+            done += level.getGameTime() - syncedAt + partialTick;
+        }
+        return Mth.clamp(done / total, 0.0F, 1.0F);
+    }
+
+    /**
+     * @return whether the stove burns or burned recently enough to be warm on top
+     */
+    public boolean isWarm() {
+        return isLit() || level != null && level.getGameTime() - lastBurned < WARM_TICKS;
+    }
+
+    // ------------------------------------------------------------------------------------ its Kolobki
+
+    public int kolobkiCount() {
+        return kolobki.size();
+    }
+
+    public boolean isFull() {
+        return kolobki.size() >= MAX_KOLOBKI;
+    }
+
+    public boolean remembers(UUID kolobok) {
+        return kolobki.contains(kolobok);
+    }
+
+    /**
+     * Takes in a Kolobok who counts this stove his home but whom it does not remember, such as one
+     * baked before the stove was taken apart and built again.
+     *
+     * @return whether he is one of its Kolobki now
+     */
+    public boolean adopt(UUID kolobok) {
+        if (remembers(kolobok)) {
+            return true;
+        }
+        if (isFull()) {
+            return false;
+        }
+        kolobki.add(kolobok);
+        setChanged();
+        return true;
+    }
+
+    /**
+     * He is really gone ({@code /kill}, the void): his place on top is free, and the stove can bake
+     * another.
+     */
+    public void forget(UUID kolobok) {
+        if (kolobki.remove(kolobok)) {
+            setChanged();
+        }
     }
 
     // ------------------------------------------------------------------------------------ ticking
 
+    /**
+     * Runs only while the stove burns. The fire takes the next log when it runs low and there is
+     * still something to cook; with nothing left to cook, or no wood, it goes out.
+     */
     public static void serverTick(Level level, BlockPos pos, BlockState state, StoveBlockEntity stove) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
         // Once a second, and on the tick the fire goes out: a cold stove has no ticker to notice later.
-        if ((level.getGameTime() % 20 == 0 || stove.fuel <= 1) && !StovePattern.isIntact(level, pos, stove.facing())) {
+        if ((level.getGameTime() % 20 == 0 || stove.burn <= 1) && !StovePattern.isIntact(level, pos, stove.facing())) {
             StovePattern.disassembleDamaged(serverLevel, pos, state);
             return;
         }
-        if (stove.fuel > 0) {
-            stove.fuel--;
+        if (stove.burn <= 0 && !(stove.hasWork() && stove.takeLog(serverLevel))) {
+            stove.goOut();
+            return;
         }
-        if (stove.doughReady() && stove.progress < BAKE_TICKS) {
-            stove.progress++;
-        }
-        if (stove.progress >= BAKE_TICKS && stove.doughReady()) {
-            stove.bake(serverLevel);
-        }
-        if (stove.fuel <= 0) {
-            stove.tooHot = false;
-            StovePattern.setLit(level, pos, stove.facing(), false);
+        stove.burn--;
+        stove.lastBurned = level.getGameTime();
+        if (stove.hasWork() && ++stove.progress >= stove.total) {
+            stove.finish(serverLevel);
         }
         stove.setChanged();
     }
@@ -129,55 +244,129 @@ public class StoveBlockEntity extends BlockEntity {
                 top.z + (random.nextDouble() - 0.5) * 0.25, 0.0, 0.07, 0.0);
     }
 
-    private void bake(ServerLevel level) {
-        Direction facing = facing();
-        Vec3 hearth = StovePattern.hearth(worldPosition, facing);
-        // One at a time: the next waits in the oven until the hearth is free.
-        if (!level.getEntitiesOfClass(KolobokEntity.class, new AABB(hearth, hearth).inflate(0.4)).isEmpty()) {
+    /**
+     * @return whether there is something in the горнило that the fire would cook
+     */
+    private boolean hasWork() {
+        return !oven.isEmpty() && !cooked && total > 0;
+    }
+
+    /**
+     * Lights the fire if there is work for it, taking a log from the подпечье when none burns.
+     */
+    private void kindle(ServerLevel level) {
+        if (isLit() || !hasWork() || burn <= 0 && !takeLog(level)) {
             return;
         }
+        StovePattern.setLit(level, worldPosition, facing(), true);
+        level.playSound(null, worldPosition, SoundEvents.FIRECHARGE_USE, SoundSource.BLOCKS, 0.6F, 1.0F);
+    }
+
+    private boolean takeLog(ServerLevel level) {
+        if (logs.isEmpty()) {
+            return false;
+        }
+        int time = burnTime(level, logs);
+        logs.shrink(1);
+        if (logs.isEmpty()) {
+            logs = ItemStack.EMPTY;
+        }
+        burn += Math.max(1, time);
+        sync();
+        return true;
+    }
+
+    private void goOut() {
+        burn = 0;
+        if (level != null) {
+            lastBurned = level.getGameTime();
+            StovePattern.setLit(level, worldPosition, facing(), false);
+        }
+        sync();
+    }
+
+    private void finish(ServerLevel level) {
+        if (oven.is(KItems.RAW_KOLOBOK.get())) {
+            bake(level);
+        } else {
+            cook(level);
+        }
+        progress = 0;
+        total = 0;
+        sync();
+    }
+
+    /**
+     * The raw Kolobok is baked: he sits in the горнило, hot and asleep, until he cools.
+     */
+    private void bake(ServerLevel level) {
+        Direction facing = facing();
         KolobokEntity kolobok = KEntities.KOLOBOK.get().create(level, EntitySpawnReason.TRIGGERED);
         if (kolobok == null) {
             return;
         }
+        Vec3 spot = StovePattern.gornilo(worldPosition, facing);
         int cool = StovePattern.hasWindow(level, worldPosition, facing) ? COOL_TICKS_BY_WINDOW : COOL_TICKS;
-        kolobok.snapTo(hearth.x, hearth.y, hearth.z, facing.toYRot(), 0.0F);
+        kolobok.snapTo(spot.x, spot.y, spot.z, facing.toYRot(), 0.0F);
         kolobok.bake(variant(level), tooHot, worldPosition, cool);
+        Component name = oven.get(DataComponents.CUSTOM_NAME);
+        if (name != null) {
+            kolobok.setCustomName(name);
+        }
         level.addFreshEntity(kolobok);
-        level.playSound(null, hearth.x, hearth.y, hearth.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.4F, 1.4F);
-        wheat = 0;
-        egg = false;
-        milk = false;
-        cocoa = false;
-        gold = false;
-        progress = 0;
+        kolobki.add(kolobok.getUUID());
+        level.playSound(null, spot.x, spot.y, spot.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.4F, 1.4F);
+        oven = ItemStack.EMPTY;
+        tooHot = false;
     }
 
     private Variant variant(ServerLevel level) {
-        if (wheat < MAX_WHEAT) {
-            return Variant.MINI;
-        }
-        if (level.isDarkOutside()
+        Variant dough = DoughItem.variant(oven);
+        if (dough != Variant.MINI && level.isDarkOutside()
                 && level.environmentAttributes().getValue(EnvironmentAttributes.MOON_PHASE, worldPosition) == MoonPhase.FULL_MOON) {
             return Variant.MOON;
         }
-        if (gold) {
-            return Variant.GOLDEN;
+        return dough;
+    }
+
+    /**
+     * The whole stack is cooked at once, and stays in the горнило until taken out.
+     */
+    private void cook(ServerLevel level) {
+        Optional<RecipeHolder<SmokingRecipe>> recipe = recipeFor(level, oven);
+        if (recipe.isEmpty()) {
+            return;
         }
-        return cocoa ? Variant.BORODINSKY : Variant.CLASSIC;
+        int count = oven.getCount();
+        ItemStack result = recipe.get().value().assemble(new SingleRecipeInput(oven));
+        int made = result.getCount() * count;
+        oven = result.copyWithCount(Math.min(made, result.getMaxStackSize()));
+        if (made > oven.getCount()) {
+            Vec3 front = Vec3.atCenterOf(StovePattern.front(worldPosition, facing()));
+            Containers.dropItemStack(level, front.x, front.y, front.z, result.copyWithCount(made - oven.getCount()));
+        }
+        experience += recipe.get().value().experience() * count;
+        cooked = true;
+        level.playSound(null, worldPosition, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.3F, 1.8F);
+    }
+
+    private static Optional<RecipeHolder<SmokingRecipe>> recipeFor(ServerLevel level, ItemStack stack) {
+        return level.recipeAccess().getRecipeFor(RecipeType.SMOKING, new SingleRecipeInput(stack), level);
     }
 
     // ------------------------------------------------------------------------------------ interaction
 
     /**
-     * An ingredient or fuel goes in. On the client every candidate is accepted, so that a bucket of
-     * milk is never drunk instead; the server has the last word.
+     * Logs go into the подпечье, a raw Kolobok or food into the горнило, lava or a blaze rod into the
+     * fire for heat. On the client every candidate is accepted, so that food is never eaten instead;
+     * the server has the last word.
      */
     InteractionResult useItem(ItemStack stack, Player player, InteractionHand hand) {
-        boolean ingredient = stack.is(Items.WHEAT) || stack.is(ItemTags.EGGS) || stack.is(Items.MILK_BUCKET)
-                || stack.is(Items.COCOA_BEANS) || stack.is(Items.GOLD_INGOT);
-        boolean fuelItem = isFuel(stack);
-        if (!ingredient && !fuelItem) {
+        boolean log = stack.is(ItemTags.LOGS_THAT_BURN);
+        boolean raw = stack.is(KItems.RAW_KOLOBOK.get());
+        boolean heat = stack.is(Items.LAVA_BUCKET) || stack.is(Items.BLAZE_ROD);
+        boolean food = stack.has(DataComponents.FOOD);
+        if (!log && !raw && !heat && !food) {
             return InteractionResult.TRY_WITH_EMPTY_HAND;
         }
         if (!(level instanceof ServerLevel serverLevel)) {
@@ -187,81 +376,145 @@ public class StoveBlockEntity extends BlockEntity {
             StovePattern.disassembleDamaged(serverLevel, worldPosition, getBlockState());
             return InteractionResult.SUCCESS_SERVER;
         }
-        Component refusal = ingredient ? addIngredient(stack, player, hand) : addFuel(serverLevel, stack, player, hand);
-        player.sendOverlayMessage(refusal != null ? refusal : status());
-        setChanged();
+        Component refusal;
+        if (log) {
+            refusal = addLogs(stack, player);
+        } else if (raw) {
+            refusal = addRawKolobok(serverLevel, stack, player);
+        } else if (heat) {
+            refusal = addHeat(stack, player, hand);
+        } else {
+            refusal = addFood(serverLevel, stack, player);
+        }
+        if (refusal != null) {
+            player.sendOverlayMessage(refusal);
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        kindle(serverLevel);
+        sync();
+        player.sendOverlayMessage(hasWork() && !isLit()
+                ? Component.translatable("kolobok.stove.no_logs")
+                : status());
         return InteractionResult.SUCCESS_SERVER;
     }
 
     /**
-     * @return why it was refused, or {@code null} when it went in
+     * @return why they were refused, or {@code null} when they went in
      */
-    private Component addIngredient(ItemStack stack, Player player, InteractionHand hand) {
-        SoundEvent sound = SoundEvents.CROP_PLANTED;
-        if (stack.is(Items.WHEAT)) {
-            if (wheat >= MAX_WHEAT) {
-                return Component.translatable("kolobok.stove.enough_wheat");
-            }
-            wheat++;
-        } else if (stack.is(ItemTags.EGGS)) {
-            if (egg) {
-                return Component.translatable("kolobok.stove.already", stack.getHoverName());
-            }
-            egg = true;
-        } else if (stack.is(Items.MILK_BUCKET)) {
-            if (milk) {
-                return Component.translatable("kolobok.stove.already", stack.getHoverName());
-            }
-            milk = true;
-            sound = SoundEvents.BUCKET_EMPTY;
-        } else if (stack.is(Items.COCOA_BEANS)) {
-            if (cocoa) {
-                return Component.translatable("kolobok.stove.already", stack.getHoverName());
-            }
-            cocoa = true;
-        } else {
-            if (gold) {
-                return Component.translatable("kolobok.stove.already", stack.getHoverName());
-            }
-            gold = true;
+    private @Nullable Component addLogs(ItemStack stack, Player player) {
+        if (!logs.isEmpty() && !ItemStack.isSameItemSameComponents(logs, stack)) {
+            return Component.translatable("kolobok.stove.other_logs", logs.getHoverName());
         }
-        if (stack.is(Items.MILK_BUCKET)) {
-            player.setItemInHand(hand, ItemUtils.createFilledResult(stack, player, new ItemStack(Items.BUCKET)));
-        } else {
-            stack.consume(1, player);
+        int room = stack.getMaxStackSize() - logs.getCount();
+        if (room <= 0) {
+            return Component.translatable("kolobok.stove.logs_full");
         }
-        level.playSound(null, worldPosition, sound, SoundSource.BLOCKS, 1.0F, 1.0F);
+        int moved = Math.min(room, stack.getCount());
+        if (logs.isEmpty()) {
+            logs = stack.copyWithCount(moved);
+        } else {
+            logs.grow(moved);
+        }
+        stack.consume(moved, player);
+        playSound(SoundEvents.WOOD_PLACE, 1.0F);
         return null;
     }
 
-    // NeoForge deprecates Item#getCraftingRemainder for its own stack-aware extension; the vanilla
-    // method is the one both loaders share, and the vanilla furnace uses it too.
-    @SuppressWarnings("deprecation")
-    private Component addFuel(ServerLevel level, ItemStack stack, Player player, InteractionHand hand) {
-        int burn = burnTime(level, stack, player);
-        if (burn <= 0) {
-            return Component.translatable("kolobok.stove.not_fuel");
+    private @Nullable Component addRawKolobok(ServerLevel level, ItemStack stack, Player player) {
+        Component busy = ovenBusy(level);
+        if (busy != null) {
+            return busy;
         }
-        if (fuel + burn > MAX_FUEL) {
+        if (isFull()) {
+            return Component.translatable("kolobok.stove.full", MAX_KOLOBKI);
+        }
+        oven = stack.copyWithCount(1);
+        stack.consume(1, player);
+        cooked = false;
+        progress = 0;
+        total = BAKE_TICKS;
+        playSound(SoundEvents.SLIME_BLOCK_PLACE, 0.8F);
+        return null;
+    }
+
+    private @Nullable Component addFood(ServerLevel level, ItemStack stack, Player player) {
+        Optional<RecipeHolder<SmokingRecipe>> recipe = recipeFor(level, stack);
+        if (recipe.isEmpty()) {
+            return Component.translatable("kolobok.stove.not_food");
+        }
+        if (!oven.isEmpty() && !cooked && ItemStack.isSameItemSameComponents(oven, stack)) {
+            // More of the same: it joins what is cooking and is done with it.
+            int moved = Math.min(oven.getMaxStackSize() - oven.getCount(), stack.getCount());
+            if (moved <= 0) {
+                return Component.translatable("kolobok.stove.oven_full");
+            }
+            oven.grow(moved);
+            stack.consume(moved, player);
+            playSound(SoundEvents.ITEM_FRAME_ADD_ITEM, 1.0F);
+            return null;
+        }
+        Component busy = ovenBusy(level);
+        if (busy != null) {
+            return busy;
+        }
+        int count = stack.getCount();
+        oven = stack.copyWithCount(count);
+        stack.consume(count, player);
+        cooked = false;
+        experience = 0.0F;
+        progress = 0;
+        total = Math.max(1, recipe.get().value().cookingTime() * COOK_FACTOR);
+        playSound(SoundEvents.ITEM_FRAME_ADD_ITEM, 1.0F);
+        return null;
+    }
+
+    private @Nullable Component addHeat(ItemStack stack, Player player, InteractionHand hand) {
+        if (tooHot) {
             return Component.translatable("kolobok.stove.hot_enough");
         }
-        fuel += burn;
-        if (stack.is(Items.LAVA_BUCKET) || stack.is(Items.BLAZE_ROD)) {
-            tooHot = true;
-        }
-        ItemStackTemplate remainder = stack.getItem().getCraftingRemainder();
-        if (remainder != null) {
-            player.setItemInHand(hand, ItemUtils.createFilledResult(stack, player, remainder.create()));
+        tooHot = true;
+        if (stack.is(Items.LAVA_BUCKET)) {
+            player.setItemInHand(hand, ItemUtils.createFilledResult(stack, player, new ItemStack(Items.BUCKET)));
+            playSound(SoundEvents.BUCKET_EMPTY_LAVA, 1.0F);
         } else {
             stack.consume(1, player);
+            playSound(SoundEvents.BLAZE_SHOOT, 0.5F);
         }
-        level.playSound(null, worldPosition, SoundEvents.FIRECHARGE_USE, SoundSource.BLOCKS, 0.6F, 1.0F);
-        StovePattern.setLit(level, worldPosition, facing(), true);
+        sync();
+        return Component.translatable("kolobok.stove.too_hot");
+    }
+
+    /**
+     * @return what keeps the горнило from taking more, or {@code null} when it is free
+     */
+    private @Nullable Component ovenBusy(ServerLevel level) {
+        if (!oven.isEmpty()) {
+            return Component.translatable("kolobok.stove.oven_busy", oven.getHoverName());
+        }
+        if (hasKolobokInside(level)) {
+            return Component.translatable("kolobok.stove.kolobok_inside");
+        }
         return null;
     }
 
     /**
-     * Shows what is in the trough and how long the fire lasts; with Shift, takes the dough back.
+     * @return whether a Kolobok sits in the горнило: a fresh one cooling, or one who climbed in
+     */
+    public boolean hasKolobokInside(Level level) {
+        return !level.getEntitiesOfClass(KolobokEntity.class, StovePattern.gorniloSpace(worldPosition, facing())).isEmpty();
+    }
+
+    /**
+     * @return whether a Kolobok may climb into the горнило now: cold, empty, nobody in it
+     */
+    public boolean canTakeVisitor() {
+        return level != null && !isLit() && oven.isEmpty() && !hasKolobokInside(level);
+    }
+
+    /**
+     * An empty hand takes out what is in the горнило: the cooked food with its experience, or what was
+     * put in and has not been cooked yet. With nothing there it shows the status; with Shift it takes
+     * the firewood back.
      */
     InteractionResult useEmptyHand(Player player) {
         if (!(level instanceof ServerLevel serverLevel)) {
@@ -272,146 +525,179 @@ public class StoveBlockEntity extends BlockEntity {
             return InteractionResult.SUCCESS_SERVER;
         }
         if (player.isShiftKeyDown()) {
-            List<ItemStack> dough = takeDough();
-            if (dough.isEmpty()) {
-                player.sendOverlayMessage(Component.translatable("kolobok.stove.trough_empty"));
-            } else {
-                for (ItemStack stack : dough) {
-                    player.getInventory().placeItemBackInInventory(stack, Prediction.SERVER_ONLY);
-                }
-                level.playSound(null, worldPosition, SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.3F, 1.0F);
+            if (logs.isEmpty()) {
                 player.sendOverlayMessage(status());
+                return InteractionResult.SUCCESS_SERVER;
             }
+            give(player, logs);
+            logs = ItemStack.EMPTY;
+        } else if (!oven.isEmpty()) {
+            if (cooked && experience > 0.0F) {
+                award(serverLevel, player.position(), experience);
+            }
+            give(player, oven);
+            oven = ItemStack.EMPTY;
+            cooked = false;
+            experience = 0.0F;
+            progress = 0;
+            total = 0;
         } else {
             player.sendOverlayMessage(status());
+            return InteractionResult.SUCCESS_SERVER;
         }
+        playSound(SoundEvents.ITEM_PICKUP, 0.3F);
+        sync();
+        player.sendOverlayMessage(status());
         return InteractionResult.SUCCESS_SERVER;
     }
 
-    private List<ItemStack> takeDough() {
-        List<ItemStack> out = new ArrayList<>();
-        if (wheat > 0) {
-            out.add(new ItemStack(Items.WHEAT, wheat));
+    private static void give(Player player, ItemStack stack) {
+        player.getInventory().placeItemBackInInventory(stack, Prediction.SERVER_ONLY);
+    }
+
+    /** As a furnace pays it out: the fraction is a chance of one more point. */
+    private static void award(ServerLevel level, Vec3 at, float experience) {
+        int points = Mth.floor(experience);
+        if (level.getRandom().nextFloat() < Mth.frac(experience)) {
+            points++;
         }
-        if (egg) {
-            out.add(new ItemStack(Items.EGG));
-        }
-        if (milk) {
-            out.add(new ItemStack(Items.MILK_BUCKET));
-        }
-        if (cocoa) {
-            out.add(new ItemStack(Items.COCOA_BEANS));
-        }
-        if (gold) {
-            out.add(new ItemStack(Items.GOLD_INGOT));
-        }
-        wheat = 0;
-        egg = false;
-        milk = false;
-        cocoa = false;
-        gold = false;
-        progress = 0;
-        setChanged();
-        return out;
+        ExperienceOrb.award(level, at, points);
     }
 
     /**
-     * «Квашня: пшеница 3/3, яйцо ✔, сметанка ✘ · дрова 0:40».
+     * «Горнило: сырой колобок, печётся 40% · подпечье: дубовое бревно ×12 · горит · колобков 2/5».
      */
     public Component status() {
-        MutableComponent text = Component.translatable("kolobok.stove.trough", wheat, MAX_WHEAT, mark(egg), mark(milk));
-        if (cocoa) {
-            text.append(", ").append(Component.translatable("kolobok.stove.cocoa"));
-        }
-        if (gold) {
-            text.append(", ").append(Component.translatable("kolobok.stove.gold"));
-        }
-        text.append(" · ");
-        if (fuel > 0) {
-            int seconds = (fuel + 19) / 20;
-            text.append(Component.translatable("kolobok.stove.fuel", "%d:%02d".formatted(seconds / 60, seconds % 60)));
-        } else {
-            text.append(Component.translatable("kolobok.stove.cold"));
-        }
-        if (doughReady() && fuel > 0) {
-            text.append(" · ").append(progress >= BAKE_TICKS
-                    ? Component.translatable("kolobok.stove.hearth_busy")
-                    : Component.translatable("kolobok.stove.baking", progress * 100 / BAKE_TICKS));
-        }
+        MutableComponent oven = Component.translatable("kolobok.stove.status.oven", ovenStatus());
+        MutableComponent wood = logs.isEmpty()
+                ? Component.translatable("kolobok.stove.status.no_logs")
+                : Component.translatable("kolobok.stove.status.logs", logs.getHoverName(), logs.getCount());
+        Component fire = Component.translatable(isLit() ? "kolobok.stove.status.lit" : "kolobok.stove.status.cold");
+        MutableComponent text = oven.append(" · ").append(wood).append(" · ").append(fire).append(" · ")
+                .append(Component.translatable("kolobok.stove.status.kolobki", kolobki.size(), MAX_KOLOBKI));
         if (tooHot) {
-            text.append(" · ").append(Component.translatable("kolobok.stove.too_hot"));
+            text.append(" · ").append(Component.translatable("kolobok.stove.status.too_hot").withStyle(ChatFormatting.GOLD));
+        }
+        if (isFull()) {
+            text.append(" · ").append(Component.translatable("kolobok.stove.status.full").withStyle(ChatFormatting.RED));
         }
         return text;
     }
 
-    private static String mark(boolean present) {
-        return present ? "✔" : "✘";
+    private Component ovenStatus() {
+        if (oven.isEmpty()) {
+            return level != null && hasKolobokInside(level)
+                    ? Component.translatable("kolobok.stove.status.kolobok")
+                    : Component.translatable("kolobok.stove.status.empty");
+        }
+        if (cooked) {
+            return Component.translatable("kolobok.stove.status.done", oven.getHoverName(), oven.getCount());
+        }
+        int percent = Math.round(progress(0.0F) * 100.0F);
+        boolean bread = oven.is(KItems.RAW_KOLOBOK.get());
+        if (!isLit()) {
+            return bread
+                    ? Component.translatable("kolobok.stove.status.bread_waiting", oven.getHoverName())
+                    : Component.translatable("kolobok.stove.status.waiting", oven.getHoverName(), oven.getCount());
+        }
+        return bread
+                ? Component.translatable("kolobok.stove.status.baking", oven.getHoverName(), percent)
+                : Component.translatable("kolobok.stove.status.cooking", oven.getHoverName(), oven.getCount(), percent);
+    }
+
+    private void playSound(SoundEvent sound, float volume) {
+        if (level != null) {
+            level.playSound(null, worldPosition, sound, SoundSource.BLOCKS, volume, 1.0F);
+        }
     }
 
     // ------------------------------------------------------------------------------------ fuel
 
     /**
-     * Anything the vanilla furnace burns, except tools and weapons: a wooden sword in hand should not
-     * end up in the fire by a slip of the finger.
+     * A log's burn time as a furnace would have it. Vanilla resolves it from data, against the block
+     * that burns it; the stove counts as an ordinary furnace.
      */
-    static boolean isFuel(ItemStack stack) {
-        return stack.has(DataComponents.COOKING_FUEL) && !stack.isDamageableItem();
-    }
-
-    /**
-     * The fuel's burn time as a furnace would have it. Vanilla resolves it from data, against the
-     * block that burns it; the stove counts as an ordinary furnace.
-     */
-    private int burnTime(ServerLevel level, ItemStack stack, Player player) {
+    private int burnTime(ServerLevel level, ItemStack stack) {
         LootContext context = new LootContext.Builder(new LootParams.Builder(level)
                 .withParameter(LootContextParams.BLOCK_STATE, getBlockState())
                 .withParameter(LootContextParams.ORIGIN, Vec3.atCenterOf(worldPosition))
                 .withOptionalParameter(LootContextParams.BLOCK_ENTITY, this)
-                .withOptionalParameter(LootContextParams.INTERACTING_ENTITY, player)
                 .withOptionalParameter(LootContextParams.TOOL, stack)
                 .create(LootContextParamSets.BLOCK_INTERACT))
                 .create(Optional.empty());
         return ResolvableInt.getFromItem(stack, DataComponents.COOKING_FUEL, CookingFuel::burnTime, context, 0);
     }
 
-    // ------------------------------------------------------------------------------------ removal and saving
+    // ------------------------------------------------------------------------------------ syncing, removal and saving
 
     /**
-     * The stove comes apart: the dough falls out where the mouth was. The fire is lost, as in a
-     * vanilla furnace.
+     * Saves and sends the change to the clients that draw the stove: the logs, what is in the горнило
+     * and how far it is. Called on changes, never every tick.
+     */
+    private void sync() {
+        setChanged();
+        if (level != null && !level.isClientSide()) {
+            BlockState state = getBlockState();
+            level.sendBlockUpdated(worldPosition, state, state, Block.UPDATE_CLIENTS);
+        }
+    }
+
+    @Override
+    public Packet<ClientGamePacketListener> getUpdatePacket() {
+        return ClientboundBlockEntityDataPacket.create(this);
+    }
+
+    @Override
+    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
+        return saveCustomOnly(registries);
+    }
+
+    /**
+     * The stove comes apart: the firewood and whatever is in the горнило fall out where the mouth
+     * was. The fire is lost, as in a vanilla furnace, and so is the stove's memory of its Kolobki.
      */
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
         if (level != null) {
-            for (ItemStack stack : takeDough()) {
-                Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+            for (ItemStack stack : new ItemStack[]{logs, oven}) {
+                if (!stack.isEmpty()) {
+                    Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
+                }
             }
+            logs = ItemStack.EMPTY;
+            oven = ItemStack.EMPTY;
         }
     }
 
     @Override
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
-        wheat = input.getIntOr("wheat", 0);
-        egg = input.getBooleanOr("egg", false);
-        milk = input.getBooleanOr("milk", false);
-        cocoa = input.getBooleanOr("cocoa", false);
-        gold = input.getBooleanOr("gold", false);
-        fuel = input.getIntOr("fuel", 0);
+        logs = input.read("logs", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
+        oven = input.read("oven", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
+        cooked = input.getBooleanOr("cooked", false);
+        experience = input.getFloatOr("experience", 0.0F);
         progress = input.getIntOr("progress", 0);
+        total = input.getIntOr("total", 0);
+        burn = input.getIntOr("burn", 0);
         tooHot = input.getBooleanOr("too_hot", false);
+        lastBurned = input.getLongOr("last_burned", Long.MIN_VALUE / 2);
+        kolobki.clear();
+        kolobki.addAll(input.read("kolobki", UUIDUtil.STRING_CODEC.listOf()).orElse(List.of()));
+        syncedAt = level != null ? level.getGameTime() : 0L;
     }
 
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
-        output.putInt("wheat", wheat);
-        output.putBoolean("egg", egg);
-        output.putBoolean("milk", milk);
-        output.putBoolean("cocoa", cocoa);
-        output.putBoolean("gold", gold);
-        output.putInt("fuel", fuel);
+        output.store("logs", ItemStack.OPTIONAL_CODEC, logs);
+        output.store("oven", ItemStack.OPTIONAL_CODEC, oven);
+        output.putBoolean("cooked", cooked);
+        output.putFloat("experience", experience);
         output.putInt("progress", progress);
+        output.putInt("total", total);
+        output.putInt("burn", burn);
         output.putBoolean("too_hot", tooHot);
+        output.putLong("last_burned", lastBurned);
+        output.store("kolobki", UUIDUtil.STRING_CODEC.listOf(), kolobki);
     }
 }
