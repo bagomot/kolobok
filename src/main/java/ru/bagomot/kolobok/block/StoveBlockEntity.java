@@ -4,7 +4,6 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
@@ -41,6 +40,7 @@ import net.minecraft.world.level.MoonPhase;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.level.storage.loot.LootContext;
@@ -57,23 +57,24 @@ import ru.bagomot.kolobok.registry.KBlockEntities;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 /**
  * The stove's insides, kept by the mouth: the firewood in the подпечье, whatever is in the горнило
  * and the fire. No screen: right-clicks put things in, an empty hand takes out what is done and shows
  * the rest above the hotbar, and Shift with an empty hand takes the firewood back.
  *
- * <p>The подпечье holds up to a stack of logs of one kind. The stove burns them only when there is
- * something to cook: whenever the fire runs low it takes the next log, which burns as long as it
- * would in a furnace. The горнило takes one raw Kolobok, rolled from dough at the crafting table, or
- * a stack of anything a smoker cooks; the whole stack cooks at once.
- *
- * <p>The top has room for five Kolobki, so a stove bakes five and no more. Whose each place is lives
- * in {@link StoveRegistry}, outside the chunk, so that a Kolobok far away can find his way back; a
- * place is freed only when its Kolobok is gone for good.
+ * <p>The подпечье holds up to a stack of logs of one kind. Flint and steel or a fire charge in the
+ * горнило lights the stove, and it burns log after log, each as long as it would in a furnace, until
+ * the wood runs out; more can go in while it burns. The горнило takes a raw Kolobok, rolled from
+ * dough at the crafting table, or a stack of anything a smoker cooks; the whole stack cooks at once,
+ * while the fire burns.
  */
 public class StoveBlockEntity extends BlockEntity {
 
@@ -83,15 +84,22 @@ public class StoveBlockEntity extends BlockEntity {
      * furnace's; a smoker runs it twice as fast.
      */
     public static final int COOK_FACTOR = 2;
-    public static final int MAX_KOLOBKI = StoveRegistry.PLACES;
     /** A fresh Kolobok cools for two minutes, or thirty seconds by a window. */
     public static final int COOL_TICKS = 2400;
     public static final int COOL_TICKS_BY_WINDOW = 600;
-    /** A stove that has burned stays warm this long: cats like it. */
+    /** A stove that has burned stays warm this long: cats like it, and it heals a Kolobok. */
     public static final int WARM_TICKS = 6000;
+
+    /**
+     * The stoves standing in the loaded chunks of each server level. Weak both ways: a stove holds its
+     * level, so a strong set would keep a closed world in memory.
+     */
+    private static final Map<Level, Set<StoveBlockEntity>> LOADED = Collections.synchronizedMap(new WeakHashMap<>());
 
     /** The подпечье: logs of one kind, up to a stack. */
     private ItemStack logs = ItemStack.EMPTY;
+    /** How long one of those logs burns. */
+    private int logTicks;
     /** The горнило: a raw Kolobok, food to cook, or the food once cooked. */
     private ItemStack oven = ItemStack.EMPTY;
     private boolean cooked;
@@ -105,10 +113,8 @@ public class StoveBlockEntity extends BlockEntity {
     private boolean tooHot;
     /** When the fire last burned, for the warmth. */
     private long lastBurned = Long.MIN_VALUE / 2;
-    /** The Kolobki a stove saved before {@link StoveRegistry} kept them, until it lists itself there. */
-    private List<UUID> legacyKolobki = List.of();
 
-    /** Client: game time the progress was last synced at, to run it on smoothly between syncs. */
+    /** Client: game time the fire and progress were last synced at, to run them on between syncs. */
     private long syncedAt;
 
     public StoveBlockEntity(BlockPos pos, BlockState state) {
@@ -146,11 +152,30 @@ public class StoveBlockEntity extends BlockEntity {
         if (total <= 0) {
             return cooked ? 1.0F : 0.0F;
         }
-        float done = progress;
-        if (level != null && level.isClientSide() && isLit()) {
-            done += level.getGameTime() - syncedAt + partialTick;
+        return Mth.clamp((progress + sinceSync(partialTick)) / total, 0.0F, 1.0F);
+    }
+
+    /**
+     * @return ticks the fire still needs to finish what is in the горнило, or 0 if there is nothing
+     *         to cook
+     */
+    public float cookLeft(float partialTick) {
+        return hasWork() ? Math.max(0.0F, total - progress - sinceSync(partialTick)) : 0.0F;
+    }
+
+    /**
+     * @return ticks of fire left while it burns: the burning log, then all the wood in the подпечье
+     */
+    public float fireLeft(float partialTick) {
+        if (!isLit()) {
+            return 0.0F;
         }
-        return Mth.clamp(done / total, 0.0F, 1.0F);
+        return Math.max(0.0F, burn - sinceSync(partialTick)) + (float) logs.getCount() * logTicks;
+    }
+
+    /** On the client, the ticks the fire has burned since the last sync; on the server, none. */
+    private float sinceSync(float partialTick) {
+        return level != null && level.isClientSide() && isLit() ? level.getGameTime() - syncedAt + partialTick : 0.0F;
     }
 
     /**
@@ -160,55 +185,48 @@ public class StoveBlockEntity extends BlockEntity {
         return isLit() || level != null && level.getGameTime() - lastBurned < WARM_TICKS;
     }
 
-    // ------------------------------------------------------------------------------------ its Kolobki
+    // ------------------------------------------------------------------------------------ loaded stoves
 
     /**
-     * A stove standing in a level is on the server's list, whatever put it there: assembly lists it
-     * itself, but a structure, or a save from before the list, brings only the block entity.
+     * @return the stoves standing in that level's loaded chunks; server side only
      */
-    @Override
-    public void setLevel(Level level) {
-        super.setLevel(level);
-        if (level instanceof ServerLevel serverLevel) {
-            StoveRegistry.of(serverLevel.getServer()).addIfMissing(level.dimension(), worldPosition,
-                    facing(), legacyKolobki);
-            legacyKolobki = List.of();
+    public static List<StoveBlockEntity> loaded(Level level) {
+        synchronized (LOADED) {
+            Set<StoveBlockEntity> stoves = LOADED.get(level);
+            return stoves == null ? List.of() : new ArrayList<>(stoves);
         }
     }
 
-    /**
-     * @return how many of the places on top are taken; server side only
-     */
-    public int kolobkiCount() {
-        return level instanceof ServerLevel serverLevel
-                ? StoveRegistry.of(serverLevel.getServer()).taken(level.dimension(), worldPosition)
-                : 0;
+    /** In place in a loaded chunk: a stove just built, or its chunk just loaded. */
+    @Override
+    public void clearRemoved() {
+        super.clearRemoved();
+        if (level instanceof ServerLevel) {
+            synchronized (LOADED) {
+                LOADED.computeIfAbsent(level, l -> Collections.newSetFromMap(new WeakHashMap<>())).add(this);
+            }
+        }
     }
 
-    public boolean isFull() {
-        return kolobkiCount() >= MAX_KOLOBKI;
-    }
-
-    public boolean remembers(UUID kolobok) {
-        return level instanceof ServerLevel serverLevel
-                && StoveRegistry.of(serverLevel.getServer()).remembers(level.dimension(), worldPosition, kolobok);
-    }
-
-    /**
-     * Gives that Kolobok a place on top, unless he has one already.
-     *
-     * @return whether he is one of its Kolobki now
-     */
-    public boolean adopt(UUID kolobok) {
-        return level instanceof ServerLevel serverLevel
-                && StoveRegistry.of(serverLevel.getServer()).adopt(level.dimension(), worldPosition, kolobok) >= 0;
+    /** Taken apart, or its chunk unloaded. */
+    @Override
+    public void setRemoved() {
+        super.setRemoved();
+        if (level != null) {
+            synchronized (LOADED) {
+                Set<StoveBlockEntity> stoves = LOADED.get(level);
+                if (stoves != null) {
+                    stoves.remove(this);
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------------------------ ticking
 
     /**
-     * Runs only while the stove burns. The fire takes the next log when it runs low and there is
-     * still something to cook; with nothing left to cook, or no wood, it goes out.
+     * Runs only while the stove burns. The fire takes the next log when it runs low and goes out
+     * when there is no wood left; whatever is in the горнило cooks meanwhile.
      */
     public static void serverTick(Level level, BlockPos pos, BlockState state, StoveBlockEntity stove) {
         if (!(level instanceof ServerLevel serverLevel)) {
@@ -219,7 +237,12 @@ public class StoveBlockEntity extends BlockEntity {
             StovePattern.disassembleDamaged(serverLevel, pos, state);
             return;
         }
-        if (stove.burn <= 0 && !(stove.hasWork() && stove.takeLog(serverLevel))) {
+        if (stove.logTicks <= 0 && !stove.logs.isEmpty()) {
+            // Saved before the stove remembered it.
+            stove.logTicks = stove.burnTime(serverLevel, stove.logs);
+            stove.sync();
+        }
+        if (stove.burn <= 0 && !stove.takeLog(serverLevel)) {
             stove.goOut();
             return;
         }
@@ -252,22 +275,12 @@ public class StoveBlockEntity extends BlockEntity {
         return !oven.isEmpty() && !cooked && total > 0;
     }
 
-    /**
-     * Lights the fire if there is work for it, taking a log from the подпечье when none burns.
-     */
-    private void kindle(ServerLevel level) {
-        if (isLit() || !hasWork() || burn <= 0 && !takeLog(level)) {
-            return;
-        }
-        StovePattern.setLit(level, worldPosition, facing(), true);
-        level.playSound(null, worldPosition, SoundEvents.FIRECHARGE_USE, SoundSource.BLOCKS, 0.6F, 1.0F);
-    }
-
     private boolean takeLog(ServerLevel level) {
         if (logs.isEmpty()) {
             return false;
         }
         int time = burnTime(level, logs);
+        logTicks = time;
         logs.shrink(1);
         if (logs.isEmpty()) {
             logs = ItemStack.EMPTY;
@@ -315,7 +328,6 @@ public class StoveBlockEntity extends BlockEntity {
             kolobok.setCustomName(name);
         }
         level.addFreshEntity(kolobok);
-        adopt(kolobok.getUUID());
         level.playSound(null, spot.x, spot.y, spot.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.4F, 1.4F);
         oven = ItemStack.EMPTY;
         tooHot = false;
@@ -358,6 +370,13 @@ public class StoveBlockEntity extends BlockEntity {
     // ------------------------------------------------------------------------------------ interaction
 
     /**
+     * @return whether that lights the stove: flint and steel or a fire charge, as for a campfire
+     */
+    public static boolean isIgniter(ItemStack stack) {
+        return stack.is(Items.FLINT_AND_STEEL) || stack.is(Items.FIRE_CHARGE);
+    }
+
+    /**
      * Logs go into the подпечье, a raw Kolobok or food into the горнило, lava or a blaze rod into the
      * fire for heat. On the client every candidate is accepted, so that food is never eaten instead;
      * the server has the last word.
@@ -379,7 +398,7 @@ public class StoveBlockEntity extends BlockEntity {
         }
         Component refusal;
         if (log) {
-            refusal = addLogs(stack, player);
+            refusal = addLogs(serverLevel, stack, player);
         } else if (raw) {
             refusal = addRawKolobok(serverLevel, stack, player);
         } else if (heat) {
@@ -391,18 +410,56 @@ public class StoveBlockEntity extends BlockEntity {
             player.sendOverlayMessage(refusal);
             return InteractionResult.SUCCESS_SERVER;
         }
-        kindle(serverLevel);
         sync();
-        player.sendOverlayMessage(hasWork() && !isLit()
-                ? Component.translatable("kolobok.stove.no_logs")
-                : status());
+        player.sendOverlayMessage(hasWork() && !isLit() ? notLit() : status());
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
+     * Flint and steel or a fire charge in the горнило lights the wood in the подпечье.
+     */
+    InteractionResult ignite(ItemStack stack, Player player, InteractionHand hand) {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!StovePattern.isIntact(level, worldPosition, facing())) {
+            StovePattern.disassembleDamaged(serverLevel, worldPosition, getBlockState());
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        Component refusal = null;
+        if (isLit()) {
+            refusal = Component.translatable("kolobok.stove.already_lit");
+        } else if (logs.isEmpty() && burn <= 0) {
+            refusal = Component.translatable("kolobok.stove.nothing_to_light");
+        } else if (hasKolobokInside(level)) {
+            refusal = Component.translatable("kolobok.stove.kolobok_inside");
+        }
+        if (refusal != null) {
+            player.sendOverlayMessage(refusal);
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        if (burn <= 0) {
+            takeLog(serverLevel);
+        }
+        StovePattern.setLit(level, worldPosition, facing(), true);
+        boolean charge = stack.is(Items.FIRE_CHARGE);
+        level.playSound(null, worldPosition, charge ? SoundEvents.FIRECHARGE_USE : SoundEvents.FLINTANDSTEEL_USE,
+                SoundSource.BLOCKS, 1.0F, level.getRandom().nextFloat() * 0.4F + 0.8F);
+        level.gameEvent(player, GameEvent.BLOCK_CHANGE, worldPosition);
+        if (charge) {
+            stack.consume(1, player);
+        } else {
+            stack.hurtAndBreak(1, player, hand.asEquipmentSlot());
+        }
+        sync();
+        player.sendOverlayMessage(status());
         return InteractionResult.SUCCESS_SERVER;
     }
 
     /**
      * @return why they were refused, or {@code null} when they went in
      */
-    private @Nullable Component addLogs(ItemStack stack, Player player) {
+    private @Nullable Component addLogs(ServerLevel level, ItemStack stack, Player player) {
         if (!logs.isEmpty() && !ItemStack.isSameItemSameComponents(logs, stack)) {
             return Component.translatable("kolobok.stove.other_logs", logs.getHoverName());
         }
@@ -413,6 +470,7 @@ public class StoveBlockEntity extends BlockEntity {
         int moved = Math.min(room, stack.getCount());
         if (logs.isEmpty()) {
             logs = stack.copyWithCount(moved);
+            logTicks = burnTime(level, logs);
         } else {
             logs.grow(moved);
         }
@@ -425,9 +483,6 @@ public class StoveBlockEntity extends BlockEntity {
         Component busy = ovenBusy(level);
         if (busy != null) {
             return busy;
-        }
-        if (isFull()) {
-            return Component.translatable("kolobok.stove.full", MAX_KOLOBKI);
         }
         oven = stack.copyWithCount(1);
         stack.consume(1, player);
@@ -498,6 +553,11 @@ public class StoveBlockEntity extends BlockEntity {
         return null;
     }
 
+    /** Something waits in the горнило, but the stove is cold. */
+    private Component notLit() {
+        return Component.translatable(logs.isEmpty() ? "kolobok.stove.no_logs" : "kolobok.stove.not_lit");
+    }
+
     /**
      * @return whether a Kolobok sits in the горнило: a fresh one cooling, or one who climbed in
      */
@@ -566,7 +626,7 @@ public class StoveBlockEntity extends BlockEntity {
     }
 
     /**
-     * «Горнило: сырой колобок, печётся 40% · подпечье: дубовое бревно ×12 · горит · колобков 2/5».
+     * «Горнило: сырой колобок, печётся 40% · подпечье: дубовое бревно ×12 · топится».
      */
     public Component status() {
         MutableComponent oven = Component.translatable("kolobok.stove.status.oven", ovenStatus());
@@ -574,13 +634,9 @@ public class StoveBlockEntity extends BlockEntity {
                 ? Component.translatable("kolobok.stove.status.no_logs")
                 : Component.translatable("kolobok.stove.status.logs", logs.getHoverName(), logs.getCount());
         Component fire = Component.translatable(isLit() ? "kolobok.stove.status.lit" : "kolobok.stove.status.cold");
-        MutableComponent text = oven.append(" · ").append(wood).append(" · ").append(fire).append(" · ")
-                .append(Component.translatable("kolobok.stove.status.kolobki", kolobkiCount(), MAX_KOLOBKI));
+        MutableComponent text = oven.append(" · ").append(wood).append(" · ").append(fire);
         if (tooHot) {
             text.append(" · ").append(Component.translatable("kolobok.stove.status.too_hot").withStyle(ChatFormatting.GOLD));
-        }
-        if (isFull()) {
-            text.append(" · ").append(Component.translatable("kolobok.stove.status.full").withStyle(ChatFormatting.RED));
         }
         return text;
     }
@@ -632,8 +688,8 @@ public class StoveBlockEntity extends BlockEntity {
     // ------------------------------------------------------------------------------------ syncing, removal and saving
 
     /**
-     * Saves and sends the change to the clients that draw the stove: the logs, what is in the горнило
-     * and how far it is. Called on changes, never every tick.
+     * Saves and sends the change to the clients that draw the stove: the logs, the fire, what is in
+     * the горнило and how far it is. Called on changes, never every tick.
      */
     private void sync() {
         setChanged();
@@ -655,8 +711,7 @@ public class StoveBlockEntity extends BlockEntity {
 
     /**
      * The stove comes apart: the firewood and whatever is in the горнило fall out where the mouth
-     * was. The fire is lost, as in a vanilla furnace; the places on top went with the stove's entry in
-     * {@link StoveRegistry}.
+     * was. The fire is lost, as in a vanilla furnace.
      */
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
@@ -675,6 +730,7 @@ public class StoveBlockEntity extends BlockEntity {
     protected void loadAdditional(ValueInput input) {
         super.loadAdditional(input);
         logs = input.read("logs", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
+        logTicks = input.getIntOr("log_ticks", 0);
         oven = input.read("oven", ItemStack.OPTIONAL_CODEC).orElse(ItemStack.EMPTY);
         cooked = input.getBooleanOr("cooked", false);
         experience = input.getFloatOr("experience", 0.0F);
@@ -683,7 +739,6 @@ public class StoveBlockEntity extends BlockEntity {
         burn = input.getIntOr("burn", 0);
         tooHot = input.getBooleanOr("too_hot", false);
         lastBurned = input.getLongOr("last_burned", Long.MIN_VALUE / 2);
-        legacyKolobki = input.read("kolobki", UUIDUtil.STRING_CODEC.listOf()).orElse(List.of());
         syncedAt = level != null ? level.getGameTime() : 0L;
     }
 
@@ -691,6 +746,7 @@ public class StoveBlockEntity extends BlockEntity {
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
         output.store("logs", ItemStack.OPTIONAL_CODEC, logs);
+        output.putInt("log_ticks", logTicks);
         output.store("oven", ItemStack.OPTIONAL_CODEC, oven);
         output.putBoolean("cooked", cooked);
         output.putFloat("experience", experience);

@@ -1,7 +1,6 @@
 package ru.bagomot.kolobok.item;
 
 import net.minecraft.ChatFormatting;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
@@ -25,8 +24,8 @@ import java.util.List;
 
 /**
  * Песенник. Shown to one's own Kolobok, it takes down his whole song with every mob he got away
- * from, what he learned from them and where his stove is; used, it opens as a vanilla book. No
- * screen of its own: the pages are the vanilla written-book component, in translatable text.
+ * from and what he learned from them; used, it opens as a vanilla book. No screen of its own: the
+ * pages are the vanilla written-book component, in translatable text.
  */
 public class SongbookItem extends Item {
 
@@ -82,10 +81,6 @@ public class SongbookItem extends Item {
         page.append("\n\n").append(Component.translatable("kolobok.songbook.variant",
                 Component.translatable("kolobok.variant." + kolobok.getVariant().serializedName())));
         page.append("\n").append(Component.translatable("kolobok.songbook.verses", kolobok.verses().size()));
-        BlockPos home = kolobok.getHome();
-        page.append("\n").append(home == null
-                ? Component.translatable("kolobok.songbook.homeless")
-                : Component.translatable("kolobok.songbook.home", home.getX(), home.getY(), home.getZ()));
         if (kolobok.hasPerk(Perk.ENDER_DRAGON)) {
             page.append("\n\n").append(Component.translatable("kolobok.songbook.legend").withStyle(ChatFormatting.GOLD));
         }

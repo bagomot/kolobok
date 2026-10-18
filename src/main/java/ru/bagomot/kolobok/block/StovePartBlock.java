@@ -80,19 +80,41 @@ public class StovePartBlock extends BaseEntityBlock {
      * there to point at.
      */
     private static VoxelShape northShape(StovePart part) {
-        int floor = StovePattern.GORNILO_FLOOR;
         return switch (part) {
-            case MOUTH -> Shapes.join(Shapes.block(), Shapes.or(
-                            Block.box(StovePattern.PODPECHYE_X0, StovePattern.PODPECHYE_Y0, 0,
-                                    StovePattern.PODPECHYE_X1, StovePattern.PODPECHYE_Y1 - 2, StovePattern.PODPECHYE_DEPTH),
-                            Block.box(StovePattern.GORNILO_X0, floor, 0, StovePattern.GORNILO_X1, 16, 16)),
-                    BooleanOp.ONLY_FIRST);
-            case UPPER_FRONT_MIDDLE -> Shapes.join(Shapes.block(),
-                    Block.box(StovePattern.GORNILO_X0, 0, 0, StovePattern.GORNILO_X1, floor + StovePattern.GORNILO_HEIGHT - 16, 16),
-                    BooleanOp.ONLY_FIRST);
+            case MOUTH -> Shapes.join(Shapes.block(), Shapes.or(podpechye(), gornilo(0)), BooleanOp.ONLY_FIRST);
+            case UPPER_FRONT_MIDDLE -> Shapes.join(Shapes.block(), gornilo(16), BooleanOp.ONLY_FIRST);
             case CHIMNEY -> Shapes.or(Block.box(3, 0, 3, 13, 16, 13), Block.box(2, 12, 2, 14, 16, 14));
             default -> Shapes.block();
         };
+    }
+
+    private static VoxelShape podpechye() {
+        return arch(StovePattern.PODPECHYE_X0, StovePattern.PODPECHYE_X1, StovePattern.PODPECHYE_Y0,
+                StovePattern.PODPECHYE_Y1, StovePattern.PODPECHYE_DEPTH, 0);
+    }
+
+    /** The front block's share of the горнило, the block's floor this high above the mouth's. */
+    private static VoxelShape gornilo(int cellY) {
+        return arch(StovePattern.GORNILO_X0, StovePattern.GORNILO_X1, StovePattern.GORNILO_FLOOR,
+                StovePattern.GORNILO_FLOOR + StovePattern.GORNILO_HEIGHT, 16, cellY);
+    }
+
+    /**
+     * A round-topped opening from the front face, as tools/stove carves it: full width up to three
+     * pixels below the top, then narrower by one, two and four pixels a side. Heights are counted
+     * from the mouth's floor; what is outside the block whose floor is {@code cellY} is left out.
+     */
+    private static VoxelShape arch(int x0, int x1, int y0, int y1, int depth, int cellY) {
+        int[][] rows = {{0, y0, y1 - 3}, {1, y1 - 3, y1 - 2}, {2, y1 - 2, y1 - 1}, {4, y1 - 1, y1}};
+        VoxelShape out = Shapes.empty();
+        for (int[] row : rows) {
+            int bottom = Math.max(row[1] - cellY, 0);
+            int top = Math.min(row[2] - cellY, 16);
+            if (bottom < top) {
+                out = Shapes.or(out, Block.box(x0 + row[0], bottom, 0, x1 - row[0], top, depth));
+            }
+        }
+        return out;
     }
 
     @Override
@@ -146,7 +168,15 @@ public class StovePartBlock extends BaseEntityBlock {
     protected InteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos, Player player,
                                           InteractionHand hand, BlockHitResult hit) {
         StoveBlockEntity stove = stoveOf(level, pos, state);
-        return stove == null ? InteractionResult.TRY_WITH_EMPTY_HAND : stove.useItem(stack, player, hand);
+        if (stove == null) {
+            return InteractionResult.TRY_WITH_EMPTY_HAND;
+        }
+        // The fire is lit in the горнило, through the устье: the mouth's block and the one above it.
+        StovePart part = state.getValue(PART);
+        if (StoveBlockEntity.isIgniter(stack) && (part == StovePart.MOUTH || part == StovePart.UPPER_FRONT_MIDDLE)) {
+            return stove.ignite(stack, player, hand);
+        }
+        return stove.useItem(stack, player, hand);
     }
 
     @Override
@@ -177,7 +207,7 @@ public class StovePartBlock extends BaseEntityBlock {
     // ------------------------------------------------------------------------------------ fire
 
     /**
-     * Flames over the coals at the back of the горнило, smoke drifting out of the чело and the
+     * Flames over the coals at the back of the горнило, smoke drifting out of the устье and the
      * crackle of a vanilla furnace, while it burns.
      */
     @Override

@@ -26,16 +26,17 @@ import ru.bagomot.kolobok.entity.Mood;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
 
-import java.util.UUID;
 import java.util.function.Predicate;
 
 /**
  * The stove scene with a real client: vanilla bricks and a furnace become the Russian stove under the
- * rolling pin; logs go into the подпечье and a raw Kolobok into the горнило by hand, the stove bakes
- * him hot in there, he cools by the window, hops out and runs, stops to sing, is listened to by a
- * crouching player and tamed with milk; the rolling pin then switches his modes. The горнило then
- * roasts a stack of beef at once, a stove that has baked five Kolobki takes no more raw ones, and one
- * broken brick takes the stove apart again.
+ * rolling pin; logs go into the подпечье and a raw Kolobok into the горнило by hand, flint and steel
+ * lights the горнило, and pointed at, the горнило tells the time left and the подпечье the wood and
+ * how long it lasts. The stove bakes him hot in there, he cools by the window, hops out and runs,
+ * stops to sing, is listened to by a crouching player and tamed with milk; the rolling pin then
+ * switches his modes. The горнило then roasts a stack of beef at once; with nothing left to cook the
+ * fire burns on, and with the wood taken back it goes out and will not light. One broken brick takes
+ * the stove apart again.
  */
 public final class StoveVisualTest implements FabricClientGameTest {
 
@@ -46,6 +47,8 @@ public final class StoveVisualTest implements FabricClientGameTest {
     private static final String VIEW = "tp @a 0.5 -60 3.5 180 8";
     /** Low and close, to look into the горнило. */
     private static final String INSIDE = "tp @a 0.5 -60 -1.3 180 15";
+    /** The crosshair on the подпечье. */
+    private static final String WOOD = "tp @a 0.5 -60 -1.5 180 40";
 
     @Override
     public void runTest(ClientGameTestContext context) {
@@ -87,7 +90,8 @@ public final class StoveVisualTest implements FabricClientGameTest {
             context.waitTicks(10);
             context.takeScreenshot("stove-02-built");
 
-            // Logs into the подпечье and the raw Kolobok into the горнило, each by a right-click.
+            // Logs into the подпечье and the raw Kolobok into the горнило, each by a right-click: the
+            // stove stays cold until it is lit.
             server.runCommand(CLOSE);
             for (String item : new String[]{"minecraft:oak_log 16", "kolobok:raw_kolobok"}) {
                 server.runCommand("item replace entity @a weapon.mainhand with " + item);
@@ -97,14 +101,29 @@ public final class StoveVisualTest implements FabricClientGameTest {
             }
             server.runOnServer(s -> {
                 StoveBlockEntity stove = stove(s);
-                if (!stove.logs().is(Items.OAK_LOG) || !stove.oven().is(KItems.RAW_KOLOBOK.get())
-                        || !s.overworld().getBlockState(MOUTH).getValue(StovePartBlock.LIT)) {
-                    throw new AssertionError("Logs, the raw Kolobok or the fire missing: " + stove.status().getString());
+                if (!stove.logs().is(Items.OAK_LOG) || !stove.oven().is(KItems.RAW_KOLOBOK.get()) || stove.isLit()) {
+                    throw new AssertionError("Logs or the raw Kolobok missing, or lit by itself: " + stove.status().getString());
                 }
             });
-            context.takeScreenshot("stove-03-status");
+            // Flint and steel in the горнило lights it.
+            server.runCommand("item replace entity @a weapon.mainhand with minecraft:flint_and_steel");
+            context.waitTicks(2);
+            input.pressKey(options -> options.keyUse);
+            context.waitTicks(4);
+            server.runOnServer(s -> {
+                StoveBlockEntity stove = stove(s);
+                if (!s.overworld().getBlockState(MOUTH).getValue(StovePartBlock.LIT) || stove.logs().getCount() != 15) {
+                    throw new AssertionError("Flint and steel did not light the stove: " + stove.status().getString());
+                }
+            });
+            // Pointed at, the горнило tells the time left to bake.
+            context.waitTicks(10);
+            context.takeScreenshot("stove-03-lit-time-left");
+            server.runCommand(WOOD);
+            context.waitTicks(10);
+            context.takeScreenshot("stove-04-firewood");
             server.runCommand(VIEW);
-            context.waitTicks(80);
+            context.waitTicks(60);
             context.takeScreenshot("stove-04-burning");
             server.runCommand(INSIDE);
             context.waitTicks(200);
@@ -115,7 +134,6 @@ public final class StoveVisualTest implements FabricClientGameTest {
             server.runCommand("tag @e[type=kolobok:kolobok] add baked");
             check(server, "hot in the горнило", k -> k.getKState() == KState.HOT
                     && k.position().distanceTo(StovePattern.gornilo(MOUTH, FACING)) < 0.1);
-            check(server, "remembered by his stove", k -> stove(k.level().getServer()).remembers(k.getUUID()));
             context.waitTicks(10);
             context.takeScreenshot("stove-06-hot");
             server.runOnServer(s -> {
@@ -220,23 +238,38 @@ public final class StoveVisualTest implements FabricClientGameTest {
                 }
             });
 
-            // Five Kolobki, and the stove bakes no more: the raw one stays in the hand.
+            // Nothing left to cook, and the fire burns on. With the wood taken back it goes out once the
+            // log in it has burned, and with no wood there is nothing to light.
             server.runOnServer(s -> {
-                StoveBlockEntity stove = stove(s);
-                while (!stove.isFull()) {
-                    stove.adopt(UUID.randomUUID());
+                if (!stove(s).isLit()) {
+                    throw new AssertionError("The fire went out with wood left: " + stove(s).status().getString());
                 }
             });
-            server.runCommand("item replace entity @a weapon.mainhand with kolobok:raw_kolobok");
+            // The cooked beef went into the empty hand.
+            server.runCommand("item replace entity @a weapon.mainhand with minecraft:air");
+            context.waitTicks(2);
+            input.holdKey(options -> options.keyShift);
+            context.waitTicks(3);
+            input.pressKey(options -> options.keyUse);
+            context.waitTicks(3);
+            input.releaseKey(options -> options.keyShift);
+            context.waitTicks(3);
+            server.runOnServer(s -> {
+                if (!stove(s).logs().isEmpty() || player(s).getInventory().countItem(Items.OAK_LOG) == 0) {
+                    throw new AssertionError("Shift did not take the wood back: " + stove(s).status().getString());
+                }
+            });
+            waitFor(context, server, 320, "the last log to burn out", s -> !stove(s).isLit());
+            server.runCommand("item replace entity @a weapon.mainhand with minecraft:flint_and_steel");
             context.waitTicks(2);
             input.pressKey(options -> options.keyUse);
             context.waitTicks(4);
             server.runOnServer(s -> {
-                if (!stove(s).oven().isEmpty() || !player(s).getMainHandItem().is(KItems.RAW_KOLOBOK.get())) {
-                    throw new AssertionError("A full stove took a raw Kolobok: " + stove(s).status().getString());
+                if (stove(s).isLit()) {
+                    throw new AssertionError("Lit with no wood: " + stove(s).status().getString());
                 }
             });
-            context.takeScreenshot("stove-12-full");
+            context.takeScreenshot("stove-12-out");
 
             // One brick broken: everything else turns back into the bricks and the furnace.
             server.runCommand("setblock -1 -59 -5 minecraft:air");

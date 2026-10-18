@@ -26,8 +26,8 @@ import java.util.WeakHashMap;
 /**
  * A tame cat now and then takes a free place on top of a warm Russian stove, as vanilla cats sit on
  * a lit furnace: it walks up beside the stove, springs two blocks up onto the place, sits there for
- * a while facing the room and jumps down again. A Kolobok coming home to the place it sits on
- * shoos it off ({@link #shoo}).
+ * a while facing the room and jumps down again. A hurt Kolobok who finds no other place free shoos
+ * it off ({@link #shoo}).
  *
  * <p>Added beside the cat's own goals when it is loaded; nothing of vanilla's is changed.
  */
@@ -100,9 +100,16 @@ public final class CatOnStoveGoal extends Goal {
      * @return whether anyone but {@code self} stands on that place
      */
     public static boolean isTaken(Level level, Vec3 place, @Nullable LivingEntity self) {
+        return !sittingOn(level, place, self).isEmpty();
+    }
+
+    /**
+     * @return everyone but {@code self} who stands on that place
+     */
+    public static List<LivingEntity> sittingOn(Level level, Vec3 place, @Nullable LivingEntity self) {
         AABB box = new AABB(place.x - PLACE_RADIUS, place.y - 0.1, place.z - PLACE_RADIUS,
                 place.x + PLACE_RADIUS, place.y + 0.6, place.z + PLACE_RADIUS);
-        return !level.getEntitiesOfClass(LivingEntity.class, box, e -> e != self && e.isAlive() && !e.isSpectator()).isEmpty();
+        return level.getEntitiesOfClass(LivingEntity.class, box, e -> e != self && e.isAlive() && !e.isSpectator());
     }
 
     @Override

@@ -7,14 +7,17 @@ import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import ru.bagomot.kolobok.Kolobok;
+import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -53,6 +56,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final double BUBBLE_THROUGH_DISTANCE = 16.0;
     private static final int BURNT_TINT = 0xFF8A6A58;
     private static final int GOLDEN_TINT = 0xFFFFE08A;
+    private static final int STALE_TINT = 0xFFC9C3B9;
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
@@ -87,6 +91,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
 
         state.burnt = entity.hasFlag(KolobokEntity.FLAG_BURNT);
         state.golden = entity.hasPerk(Perk.ENDER_DRAGON);
+        state.stale = entity.hasFlag(KolobokEntity.FLAG_STALE);
         state.bubble = List.of();
         Component text = entity.clientSongLine != null ? entity.clientSongLine : entity.clientLine;
         if (text != null && KConfig.client().bubbles()) {
@@ -146,14 +151,37 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     }
 
     /**
-     * Burnt dough is a darker crust all over; the dragon's verse gilds it.
+     * No shadow inside the stove's blocks. The game puts a piece of it on the block under the one he
+     * stands on too, where a solid block hides it; on top of the stove, over the горнило, it showed
+     * on the под, and in the горнило on the floor of the подпечье.
+     */
+    @Override
+    protected void finalizeRenderState(KolobokEntity entity, KolobokRenderState state) {
+        super.finalizeRenderState(entity, state);
+        if (state.shadowPieces.isEmpty()) {
+            return;
+        }
+        Level level = entity.level();
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        // A piece lies on the floor of the block it was cast into; its corner is a whole block away
+        // from him, give or take the float.
+        state.shadowPieces.removeIf(piece -> level.getBlockState(pos.set(Mth.floor(state.x + piece.relativeX() + 0.5),
+                Mth.floor(state.y + piece.relativeY() + 0.5), Mth.floor(state.z + piece.relativeZ() + 0.5)))
+                .getBlock() instanceof StovePartBlock);
+    }
+
+    /**
+     * Burnt dough is a darker crust all over; the dragon's verse gilds it; stale, he is duller.
      */
     @Override
     protected int getModelTint(KolobokRenderState state) {
         if (state.burnt) {
             return BURNT_TINT;
         }
-        return state.golden ? GOLDEN_TINT : super.getModelTint(state);
+        if (state.golden) {
+            return GOLDEN_TINT;
+        }
+        return state.stale ? STALE_TINT : super.getModelTint(state);
     }
 
     @Override

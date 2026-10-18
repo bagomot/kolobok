@@ -16,17 +16,18 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.WrittenBookContent;
-import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
+import ru.bagomot.kolobok.block.StoveBlockEntity;
 import ru.bagomot.kolobok.block.StovePattern;
-import ru.bagomot.kolobok.block.StoveRegistry;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Mood;
+import ru.bagomot.kolobok.entity.ai.Goals;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
 
@@ -34,11 +35,11 @@ import java.util.List;
 import java.util.function.Predicate;
 
 /**
- * The v0.3 scene: a tamed Kolobok with a home stove is hit by a zombie and gets away, earns the
- * verse and its perk and sings the new song; «killed», he turns up resting on his stove and the
- * owner wakes him; he writes his song into the songbook, which opens as a book; «killed» in the
- * Nether, he is back on his place on the stove; with the stove gone, the next «death» is for good
- * and drops the helmet he wore.
+ * The v0.3 scene and the stove's warmth: a tamed Kolobok is hit by a zombie and gets away, earns the
+ * verse and its perk and sings the new song; three days without milk he goes stale, and milk makes
+ * him fresh again; badly hurt, he rolls to the warm stove by himself, hops on top and heals there
+ * until his owner wakes him; he writes his song into the songbook, which opens as a book; killed, he
+ * dies for good though the stove stands, and drops the helmet he wore.
  */
 public final class VersesVisualTest implements FabricClientGameTest {
 
@@ -47,6 +48,8 @@ public final class VersesVisualTest implements FabricClientGameTest {
     private static final String VIEW = "tp @a 0.5 -60 3.5 180 8";
     /** From higher up and further back, to see the top of the stove. */
     private static final String VIEW_TOP = "tp @a 0.5 -58.5 4.5 180 6";
+    /** In front of the stove, the crosshair on the горнило. */
+    private static final String CLOSE = "tp @a 0.5 -60 -1.5 180 30";
     private static final String K = "@e[tag=k,limit=1]";
 
     @Override
@@ -64,15 +67,14 @@ public final class VersesVisualTest implements FabricClientGameTest {
             server.runCommand("setblock 1 -58 -5 minecraft:bricks");
             server.runCommand(VIEW);
             server.runOnServer(s -> StovePattern.assemble(s.overworld(), MOUTH));
-            // His own Kolobok, at home in this stove. Without AI he stays in the picture instead of
-            // rolling off in a panic when the zombie hits him; verses and the rest are not AI.
+            // Without AI he stays in the picture instead of rolling off in a panic when the zombie hits
+            // him; verses and freshness are not AI.
             server.runCommand("summon kolobok:kolobok 0.5 -60 0.5 {NoAI:1b,Tags:[\"k\"],Rotation:[0f,0f]}");
             context.waitTicks(5);
             server.runOnServer(s -> {
                 KolobokEntity k = kolobok(s);
                 k.tame(player(s));
                 k.setKState(KState.SIT);
-                k.setHome(MOUTH);
             });
 
             // A zombie hits him; the zombie is then far off, and he has got away from it.
@@ -105,25 +107,82 @@ public final class VersesVisualTest implements FabricClientGameTest {
             context.waitTicks(2);
             check(server, "unhurt by the explosion", k -> k.getHealth() == health);
 
-            // «Killed», he gets away to his stove and lies on top of it.
-            server.runCommand("damage " + K + " 100 minecraft:generic");
-            context.waitTicks(3);
-            // In the middle of the front middle place, the first of the five.
+            // Three days without milk, and he is stale: slower, paler, with a harder crust.
+            server.runCommand("data merge entity " + K + " {LastFed:-300000L}");
+            waitFor(context, server, 30, "him to go stale", s -> kolobok(s).hasFlag(KolobokEntity.FLAG_STALE));
+            check(server, "stale, with a crust of armour and a word about it", k -> k.getSayKey().equals("stale")
+                    && k.getAttributeValue(Attributes.ARMOR) == 6.0);
+            server.runCommand(VIEW);
+            context.waitTicks(10);
+            clearChat(context);
+            context.takeScreenshot("verses-02-stale");
+            // Milk, «сметанка», and he is fresh again, though not hurt.
+            server.runOnServer(s -> {
+                player(s).setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.MILK_BUCKET));
+                kolobok(s).mobInteract(player(s), InteractionHand.MAIN_HAND);
+            });
+            check(server, "fresh again", k -> !k.hasFlag(KolobokEntity.FLAG_STALE) && k.getSayKey().equals("milk")
+                    && k.getAttributeValue(Attributes.ARMOR) == 2.0);
+
+            // Wood into the подпечье and flint and steel into the горнило: the stove is lit, and warm.
+            server.runCommand(CLOSE);
+            for (String item : new String[]{"minecraft:oak_log 16", "minecraft:flint_and_steel"}) {
+                server.runCommand("item replace entity @a weapon.mainhand with " + item);
+                context.waitTicks(2);
+                input.pressKey(options -> options.keyUse);
+                context.waitTicks(4);
+            }
+            server.runOnServer(s -> {
+                if (!(s.overworld().getBlockEntity(MOUTH) instanceof StoveBlockEntity stove) || !stove.isWarm()) {
+                    throw new AssertionError("The stove did not light");
+                }
+            });
+            server.runCommand(VIEW_TOP);
+
+            // Hurt below half his health, he stops singing, rolls to the warm stove himself and hops
+            // onto the front middle place, the first of the five.
+            server.runOnServer(s -> {
+                KolobokEntity k = kolobok(s);
+                k.setNoAi(false);
+                k.setKState(KState.FOLLOW);
+            });
+            server.runCommand("damage " + K + " 10 minecraft:generic");
+            context.waitTicks(2);
+            check(server, "hurt below half and quiet", k -> k.getHealth() < k.getMaxHealth() / 2.0F && !k.isSinging());
+            for (int i = 0; !server.computeOnServer(s -> kolobok(s).getKState() == KState.RESTING); i++) {
+                if (i >= 300) {
+                    throw new AssertionError("Waited 300 ticks for him to warm up on the stove: "
+                            + server.computeOnServer(VersesVisualTest::describe));
+                }
+                context.waitTicks(1);
+            }
+            context.waitTicks(15);
             check(server, "resting on the stove", k -> k.isAlive() && k.getKState() == KState.RESTING
                     && k.position().distanceTo(StovePattern.topSlots(MOUTH, Direction.SOUTH).getFirst()) < 0.01
                     && k.getMood() == Mood.SLEEP);
             server.runCommand("damage " + K + " 5 minecraft:generic");
             context.waitTicks(2);
-            check(server, "unhurt while resting", k -> k.getKState() == KState.RESTING);
-            server.runCommand(VIEW_TOP);
-            context.waitTicks(30);
+            check(server, "unhurt on the stove", k -> k.getKState() == KState.RESTING);
+            float lying = server.computeOnServer(s -> kolobok(s).getHealth());
+            context.waitTicks(45);
+            check(server, "healing on the warm stove, a point a second", k -> k.getHealth() >= lying + 2.0F);
             clearChat(context);
-            context.takeScreenshot("verses-02-resting");
+            context.takeScreenshot("verses-03-warming-up");
 
-            // The owner wakes him early.
-            server.runOnServer(s -> kolobok(s).mobInteract(player(s), InteractionHand.MAIN_HAND));
+            // The owner wakes him before he is whole: he hops down and follows.
+            server.runOnServer(s -> {
+                player(s).setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+                kolobok(s).mobInteract(player(s), InteractionHand.MAIN_HAND);
+            });
             check(server, "woken and following", k -> k.getKState() == KState.FOLLOW && k.getSayKey().equals("woken"));
-            server.runOnServer(s -> kolobok(s).setKState(KState.SIT));
+            context.waitTicks(15);
+            check(server, "down in front of the stove", k -> Math.abs(k.getY() - MOUTH.getY()) < 0.01);
+            server.runOnServer(s -> {
+                KolobokEntity k = kolobok(s);
+                k.setKState(KState.SIT);
+                k.setNoAi(true);
+                k.teleportTo(0.5, -60, 0.5);
+            });
 
             // The songbook takes down his song, then opens as a vanilla book.
             int pages = server.computeOnServer(s -> {
@@ -143,56 +202,24 @@ public final class VersesVisualTest implements FabricClientGameTest {
             input.pressKey(options -> options.keyUse);
             context.waitForScreen(BookViewScreen.class);
             context.waitTicks(5);
-            context.takeScreenshot("verses-03-songbook");
+            context.takeScreenshot("verses-04-songbook");
             for (int i = 0; i < 3; i++) {
                 input.pressKey(InputConstants.KEY_PAGEDOWN);
                 context.waitTicks(2);
             }
-            context.takeScreenshot("verses-04-songbook-verse");
+            context.takeScreenshot("verses-05-songbook-verse");
             input.pressKey(InputConstants.KEY_PAGEDOWN);
             context.waitTicks(2);
-            context.takeScreenshot("verses-05-songbook-perks");
+            context.takeScreenshot("verses-06-songbook-perks");
             context.setScreen(() -> null);
 
-            // «Killed» in the Nether, he gets away to his place on the stove in the overworld.
-            server.runCommand("execute in minecraft:the_nether run forceload add 0 0");
-            server.runCommand("execute in minecraft:the_nether run fill -2 100 -2 2 103 2 minecraft:air");
-            server.runCommand("execute in minecraft:the_nether run fill -2 99 -2 2 99 2 minecraft:obsidian");
-            server.runCommand("execute in minecraft:the_nether run tp " + K + " 0.5 100 0.5");
-            waitFor(context, server, 40, "him in the Nether", s -> !kolobki(s.getLevel(Level.NETHER)).isEmpty());
-            server.runCommand("damage " + K + " 100 minecraft:generic");
-            context.waitTicks(3);
-            server.runOnServer(s -> {
-                if (!kolobki(s.getLevel(Level.NETHER)).isEmpty()) {
-                    throw new AssertionError("He stayed in the Nether");
-                }
-            });
-            check(server, "back on his place from the Nether", k -> k.isAlive() && k.getKState() == KState.RESTING
-                    && k.position().distanceTo(StovePattern.topSlots(MOUTH, Direction.SOUTH).getFirst()) < 0.01);
-            server.runCommand("execute in minecraft:the_nether run forceload remove 0 0");
-            server.runCommand(VIEW_TOP);
-            context.waitTicks(30);
-            clearChat(context);
-            context.takeScreenshot("verses-06-home-from-nether");
-            server.runCommand("item replace entity @a weapon.mainhand with minecraft:air");
-            server.runOnServer(s -> kolobok(s).mobInteract(player(s), InteractionHand.MAIN_HAND));
-            check(server, "woken again", k -> k.getKState() == KState.FOLLOW);
-
-            // With no stove to get to, he dies for good, and what he wore falls where he was.
+            // Killed, he dies for good, warm stove or not, and what he wore falls where he was.
             server.runCommand("item replace entity " + K + " armor.head with minecraft:golden_helmet");
-            server.runCommand("setblock -1 -59 -5 minecraft:air");
-            context.waitTicks(5);
-            server.runOnServer(s -> {
-                if (StoveRegistry.of(s).facing(Level.OVERWORLD, MOUTH) != null) {
-                    throw new AssertionError("The broken stove is still on the list");
-                }
-            });
-            server.runCommand("tp " + K + " 0.5 -60 0.5");
             server.runCommand("damage " + K + " 100 minecraft:generic");
             context.waitTicks(30);
             server.runOnServer(s -> {
                 if (!kolobki(s.overworld()).isEmpty()) {
-                    throw new AssertionError("He outlived his stove");
+                    throw new AssertionError("He outlived his death");
                 }
                 List<ItemEntity> helmets = s.overworld().getEntitiesOfClass(ItemEntity.class,
                         new AABB(MOUTH).inflate(8.0), item -> item.getItem().is(Items.GOLDEN_HELMET));
@@ -203,8 +230,23 @@ public final class VersesVisualTest implements FabricClientGameTest {
             server.runCommand(VIEW);
             context.waitTicks(10);
             clearChat(context);
-            context.takeScreenshot("verses-07-gone");
+            context.takeScreenshot("verses-07-dead");
         }
+    }
+
+    /** Where he is and what he is up to, for a failure. */
+    private static String describe(MinecraftServer server) {
+        KolobokEntity k = kolobok(server);
+        StringBuilder goals = new StringBuilder();
+        Goals.goals(k).getAvailableGoals().stream().filter(WrappedGoal::isRunning)
+                .forEach(goal -> goals.append(goal.getGoal().getClass().getSimpleName()).append(' '));
+        String stoves = StoveBlockEntity.loaded(server.overworld()).stream()
+                .map(stove -> stove.getBlockPos().toShortString() + (stove.isWarm() ? " warm" : " cold"))
+                .toList().toString();
+        return k.getKState() + " at " + k.position() + " health=" + k.getHealth() + "/" + k.getMaxHealth()
+                + " tame=" + k.isTame() + " noAi=" + k.isNoAi() + " singing=" + k.isSinging() + " say=" + k.getSayKey()
+                + " navigating=" + k.getNavigation().isInProgress() + " goals=[" + goals + "] stoves=" + stoves
+                + " tick=" + k.tickCount + " id=" + k.getId();
     }
 
     private static List<? extends KolobokEntity> kolobki(ServerLevel level) {

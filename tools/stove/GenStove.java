@@ -25,10 +25,11 @@ import java.util.Random;
  * <p>The look is a whitewashed Russian stove with a red painted band under the top, and its front is
  * split the traditional way. Low down is the подпечье, a small dark arch where the firewood is kept
  * (the logs themselves are drawn by the block entity's renderer, in the wood that was put there).
- * Above it the шесток juts out, and over the шесток the arched чело opens into the горнило, the oven
- * chamber, which runs deep into the back row: bread bakes at its front, the coals lie at the back
- * and glow when it burns. Two small niches flank the чело, and the chimney with a brick cap stands
- * over the back right.
+ * Above it the arched устье opens straight into the горнило, the oven chamber, which runs deep into
+ * the back row: bread bakes at its front, the coals lie at the back and glow when it burns. The
+ * шесток is the whitewashed front of its floor, flush with the face. Two small niches flank the
+ * устье, their tops level with its vault, and the chimney with a brick cap stands over the back
+ * right.
  *
  * <p>The parts the горнило runs through have a lit model too, in which the coals glow, a flame
  * stands over them and the sooty lining is lit by the fire.
@@ -43,7 +44,10 @@ public final class GenStove {
     static final int PODPECHYE_DEPTH = 13;
     /** The под, the горнило's floor, level with the шесток. */
     static final int GORNILO_FLOOR = 13;
-    static final int CHELO_DEPTH = 3;
+    /** The устье, the горнило's arched opening in the front face: across, and the top of its vault. */
+    static final int GORNILO_X0 = 17, GORNILO_X1 = 31, GORNILO_TOP = 25;
+    /** The шесток, the whitewashed front of the под, is this deep; the soot starts behind it. */
+    static final int SHESTOK_DEPTH = 3;
     static final int GORNILO_BACK = 28;
     /** Bread stands in front of this; the coals lie behind it. */
     static final int COALS_FROM = 17;
@@ -83,9 +87,6 @@ public final class GenStove {
                 }
                 int x0 = 16 * (1 - (int) part[1]), z0 = 16 * (int) part[2], y0 = 16 * (int) part[3];
                 List<String> elements = cellFaces(grid, x0, y0, z0, lit);
-                if (name.equals("mouth")) {
-                    elements.addAll(shestok());
-                }
                 if (lit && name.equals("back_middle")) {
                     elements.add(fire());
                 }
@@ -121,13 +122,10 @@ public final class GenStove {
         // Подпечье: a low dark arch for the firewood, at the bottom of the mouth's column.
         arch(g, PODPECHYE_X0, PODPECHYE_X1, PODPECHYE_Y0, PODPECHYE_Y1, 0, PODPECHYE_DEPTH);
         line(g, PODPECHYE_X0 - 1, PODPECHYE_Y0 - 1, 0, PODPECHYE_X1 + 1, PODPECHYE_Y1 + 1, PODPECHYE_DEPTH + 1, DARK);
-        // Чело: a wide shallow arch over the шесток, sooty round its rim…
-        arch(g, 15, 33, GORNILO_FLOOR, 27, 0, CHELO_DEPTH);
-        line(g, 14, GORNILO_FLOOR - 1, 0, 34, 27, CHELO_DEPTH, SOOT);
-        line(g, 15, 27, 1, 33, 28, CHELO_DEPTH, SOOT);
-        // …and behind it the горнило, a vaulted chamber that runs deep into the back row.
-        arch(g, 17, 31, GORNILO_FLOOR, 25, CHELO_DEPTH, GORNILO_BACK);
-        line(g, 16, GORNILO_FLOOR - 1, CHELO_DEPTH, 32, 26, GORNILO_BACK + 1, SOOT);
+        // The горнило, a vaulted chamber that opens straight in the front face and runs deep into the
+        // back row. Its first pixels are whitewashed like the face, the шесток below; then the soot.
+        arch(g, GORNILO_X0, GORNILO_X1, GORNILO_FLOOR, GORNILO_TOP, 0, GORNILO_BACK);
+        line(g, GORNILO_X0 - 1, GORNILO_FLOOR - 1, SHESTOK_DEPTH, GORNILO_X1 + 1, GORNILO_TOP + 1, GORNILO_BACK + 1, SOOT);
         // The coals, raked to the back: glowing while it burns, grey ash once it is cold.
         int coal = lit ? EMBER : ASH;
         fill(g, 18, GORNILO_FLOOR, COALS_FROM, 30, GORNILO_FLOOR + 1, GORNILO_BACK, coal);
@@ -139,10 +137,10 @@ public final class GenStove {
                 }
             }
         }
-        // Two small niches either side of the чело, for drying mittens.
+        // Two small niches either side of the устье, for drying mittens, their tops level with its vault.
         for (int x0 : new int[]{4, 40}) {
-            fill(g, x0, 17, 0, x0 + 4, 21, 3, AIR);
-            fill(g, x0, 17, 3, x0 + 4, 21, 4, DARK);
+            fill(g, x0, GORNILO_TOP - 4, 0, x0 + 4, GORNILO_TOP, 3, AIR);
+            fill(g, x0, GORNILO_TOP - 4, 3, x0 + 4, GORNILO_TOP, 4, DARK);
         }
         // The chimney over the back right, with a brick cap and the flue's dark mouth.
         fill(g, 3, 32, 19, 13, 48, 29, PLASTER);
@@ -307,17 +305,6 @@ public final class GenStove {
         String glow = light > 0 ? ", \"light_emission\": " + light : "";
         return "{\"from\": " + vec(from) + ", \"to\": " + vec(to) + glow
                 + ", \"faces\": {\"" + d.name + "\": {\"texture\": \"#" + TEXTURE[material] + "\"" + cull + "}}}";
-    }
-
-    /**
-     * The шесток: a whitewashed ledge level with the под, jutting three pixels out of the front under
-     * the чело. It overhangs the mouth's block, so it is an element of its own.
-     */
-    static List<String> shestok() {
-        String plaster = "{\"texture\": \"#plaster\"}";
-        return List.of("{\"from\": [-2, 11, -3], \"to\": [18, " + GORNILO_FLOOR + ", 0], \"faces\": {"
-                + "\"north\": " + plaster + ", \"up\": " + plaster + ", \"down\": " + plaster + ","
-                + " \"east\": " + plaster + ", \"west\": " + plaster + "}}");
     }
 
     /**
