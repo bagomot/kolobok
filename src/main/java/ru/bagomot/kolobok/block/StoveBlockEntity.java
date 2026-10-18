@@ -57,24 +57,23 @@ import ru.bagomot.kolobok.registry.KBlockEntities;
 import ru.bagomot.kolobok.registry.KEntities;
 import ru.bagomot.kolobok.registry.KItems;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The stove's insides, kept by the mouth: the firewood in the подпечье, whatever is in the горнило,
- * the fire, and the Kolobki this stove has baked. No screen: right-clicks put things in, an empty
- * hand takes out what is done and shows the rest above the hotbar, and Shift with an empty hand
- * takes the firewood back.
+ * The stove's insides, kept by the mouth: the firewood in the подпечье, whatever is in the горнило
+ * and the fire. No screen: right-clicks put things in, an empty hand takes out what is done and shows
+ * the rest above the hotbar, and Shift with an empty hand takes the firewood back.
  *
  * <p>The подпечье holds up to a stack of logs of one kind. The stove burns them only when there is
  * something to cook: whenever the fire runs low it takes the next log, which burns as long as it
  * would in a furnace. The горнило takes one raw Kolobok, rolled from dough at the crafting table, or
  * a stack of anything a smoker cooks; the whole stack cooks at once.
  *
- * <p>The top has room for five Kolobki, so a stove bakes five and no more: it remembers each one, and
- * forgets one only when he is really gone (see {@link KolobokEntity#die}).
+ * <p>The top has room for five Kolobki, so a stove bakes five and no more. Whose each place is lives
+ * in {@link StoveRegistry}, outside the chunk, so that a Kolobok far away can find his way back; a
+ * place is freed only when its Kolobok is gone for good.
  */
 public class StoveBlockEntity extends BlockEntity {
 
@@ -84,7 +83,7 @@ public class StoveBlockEntity extends BlockEntity {
      * furnace's; a smoker runs it twice as fast.
      */
     public static final int COOK_FACTOR = 2;
-    public static final int MAX_KOLOBKI = 5;
+    public static final int MAX_KOLOBKI = StoveRegistry.PLACES;
     /** A fresh Kolobok cools for two minutes, or thirty seconds by a window. */
     public static final int COOL_TICKS = 2400;
     public static final int COOL_TICKS_BY_WINDOW = 600;
@@ -106,8 +105,8 @@ public class StoveBlockEntity extends BlockEntity {
     private boolean tooHot;
     /** When the fire last burned, for the warmth. */
     private long lastBurned = Long.MIN_VALUE / 2;
-    /** The Kolobki this stove baked and has room for on top. */
-    private final List<UUID> kolobki = new ArrayList<>();
+    /** The Kolobki a stove saved before {@link StoveRegistry} kept them, until it lists itself there. */
+    private List<UUID> legacyKolobki = List.of();
 
     /** Client: game time the progress was last synced at, to run it on smoothly between syncs. */
     private long syncedAt;
@@ -163,44 +162,46 @@ public class StoveBlockEntity extends BlockEntity {
 
     // ------------------------------------------------------------------------------------ its Kolobki
 
-    public int kolobkiCount() {
-        return kolobki.size();
-    }
-
-    public boolean isFull() {
-        return kolobki.size() >= MAX_KOLOBKI;
-    }
-
-    public boolean remembers(UUID kolobok) {
-        return kolobki.contains(kolobok);
+    /**
+     * A stove standing in a level is on the server's list, whatever put it there: assembly lists it
+     * itself, but a structure, or a save from before the list, brings only the block entity.
+     */
+    @Override
+    public void setLevel(Level level) {
+        super.setLevel(level);
+        if (level instanceof ServerLevel serverLevel) {
+            StoveRegistry.of(serverLevel.getServer()).addIfMissing(level.dimension(), worldPosition,
+                    facing(), legacyKolobki);
+            legacyKolobki = List.of();
+        }
     }
 
     /**
-     * Takes in a Kolobok who counts this stove his home but whom it does not remember, such as one
-     * baked before the stove was taken apart and built again.
+     * @return how many of the places on top are taken; server side only
+     */
+    public int kolobkiCount() {
+        return level instanceof ServerLevel serverLevel
+                ? StoveRegistry.of(serverLevel.getServer()).taken(level.dimension(), worldPosition)
+                : 0;
+    }
+
+    public boolean isFull() {
+        return kolobkiCount() >= MAX_KOLOBKI;
+    }
+
+    public boolean remembers(UUID kolobok) {
+        return level instanceof ServerLevel serverLevel
+                && StoveRegistry.of(serverLevel.getServer()).remembers(level.dimension(), worldPosition, kolobok);
+    }
+
+    /**
+     * Gives that Kolobok a place on top, unless he has one already.
      *
      * @return whether he is one of its Kolobki now
      */
     public boolean adopt(UUID kolobok) {
-        if (remembers(kolobok)) {
-            return true;
-        }
-        if (isFull()) {
-            return false;
-        }
-        kolobki.add(kolobok);
-        setChanged();
-        return true;
-    }
-
-    /**
-     * He is really gone ({@code /kill}, the void): his place on top is free, and the stove can bake
-     * another.
-     */
-    public void forget(UUID kolobok) {
-        if (kolobki.remove(kolobok)) {
-            setChanged();
-        }
+        return level instanceof ServerLevel serverLevel
+                && StoveRegistry.of(serverLevel.getServer()).adopt(level.dimension(), worldPosition, kolobok) >= 0;
     }
 
     // ------------------------------------------------------------------------------------ ticking
@@ -314,7 +315,7 @@ public class StoveBlockEntity extends BlockEntity {
             kolobok.setCustomName(name);
         }
         level.addFreshEntity(kolobok);
-        kolobki.add(kolobok.getUUID());
+        adopt(kolobok.getUUID());
         level.playSound(null, spot.x, spot.y, spot.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.4F, 1.4F);
         oven = ItemStack.EMPTY;
         tooHot = false;
@@ -574,7 +575,7 @@ public class StoveBlockEntity extends BlockEntity {
                 : Component.translatable("kolobok.stove.status.logs", logs.getHoverName(), logs.getCount());
         Component fire = Component.translatable(isLit() ? "kolobok.stove.status.lit" : "kolobok.stove.status.cold");
         MutableComponent text = oven.append(" · ").append(wood).append(" · ").append(fire).append(" · ")
-                .append(Component.translatable("kolobok.stove.status.kolobki", kolobki.size(), MAX_KOLOBKI));
+                .append(Component.translatable("kolobok.stove.status.kolobki", kolobkiCount(), MAX_KOLOBKI));
         if (tooHot) {
             text.append(" · ").append(Component.translatable("kolobok.stove.status.too_hot").withStyle(ChatFormatting.GOLD));
         }
@@ -654,7 +655,8 @@ public class StoveBlockEntity extends BlockEntity {
 
     /**
      * The stove comes apart: the firewood and whatever is in the горнило fall out where the mouth
-     * was. The fire is lost, as in a vanilla furnace, and so is the stove's memory of its Kolobki.
+     * was. The fire is lost, as in a vanilla furnace; the places on top went with the stove's entry in
+     * {@link StoveRegistry}.
      */
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
@@ -681,8 +683,7 @@ public class StoveBlockEntity extends BlockEntity {
         burn = input.getIntOr("burn", 0);
         tooHot = input.getBooleanOr("too_hot", false);
         lastBurned = input.getLongOr("last_burned", Long.MIN_VALUE / 2);
-        kolobki.clear();
-        kolobki.addAll(input.read("kolobki", UUIDUtil.STRING_CODEC.listOf()).orElse(List.of()));
+        legacyKolobki = input.read("kolobki", UUIDUtil.STRING_CODEC.listOf()).orElse(List.of());
         syncedAt = level != null ? level.getGameTime() : 0L;
     }
 
@@ -698,6 +699,5 @@ public class StoveBlockEntity extends BlockEntity {
         output.putInt("burn", burn);
         output.putBoolean("too_hot", tooHot);
         output.putLong("last_burned", lastBurned);
-        output.store("kolobki", UUIDUtil.STRING_CODEC.listOf(), kolobki);
     }
 }

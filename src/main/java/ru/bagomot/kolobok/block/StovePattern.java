@@ -100,7 +100,8 @@ public final class StovePattern {
     }
 
     /**
-     * Turns the checked furnace and bricks into the stove, facing where the furnace faced.
+     * Turns the checked furnace and bricks into the stove, facing where the furnace faced, and puts it
+     * on the server's list of stoves with every place on top free.
      */
     public static void assemble(ServerLevel level, BlockPos furnacePos) {
         Direction facing = level.getBlockState(furnacePos).getValue(AbstractFurnaceBlock.FACING);
@@ -116,12 +117,13 @@ public final class StovePattern {
         } finally {
             rebuilding = false;
         }
+        StoveRegistry.of(level.getServer()).add(level.dimension(), furnacePos.immutable(), facing);
     }
 
     /**
      * Called when one part has gone, however it went: every other part turns back into the block it
-     * was built from, without dropping anything. The part that went drops its own block through
-     * its loot table.
+     * was built from, without dropping anything, and the stove comes off the server's list. The part
+     * that went drops its own block through its loot table.
      */
     static void disassemble(ServerLevel level, BlockPos removedAt, BlockState removed) {
         if (rebuilding) {
@@ -129,6 +131,7 @@ public final class StovePattern {
         }
         Direction facing = removed.getValue(StovePartBlock.FACING);
         BlockPos mouth = mouthOf(removedAt, facing, removed.getValue(StovePartBlock.PART));
+        StoveRegistry.of(level.getServer()).remove(level.dimension(), mouth);
         rebuilding = true;
         try {
             for (StovePart part : StovePart.values()) {
@@ -148,6 +151,31 @@ public final class StovePattern {
      */
     static void disassembleDamaged(ServerLevel level, BlockPos mouth, BlockState mouthState) {
         disassemble(level, mouth, mouthState);
+    }
+
+    /**
+     * Checks a stove from {@link StoveRegistry} where it can be seen without loading anything. One
+     * damaged by something that skipped the removal hooks, such as a command, comes apart now and off
+     * the list.
+     *
+     * @return whether it stands whole, or is out of sight and so stands as the list has it
+     */
+    public static boolean checkListed(ServerLevel level, BlockPos mouth, Direction facing) {
+        for (StovePart part : StovePart.values()) {
+            if (!level.isLoaded(posOf(mouth, facing, part))) {
+                return true;
+            }
+        }
+        if (isIntact(level, mouth, facing)) {
+            return true;
+        }
+        BlockState state = level.getBlockState(mouth);
+        if (state.getBlock() instanceof StovePartBlock && state.getValue(StovePartBlock.PART) == StovePart.MOUTH) {
+            disassembleDamaged(level, mouth, state);
+        } else {
+            StoveRegistry.of(level.getServer()).remove(level.dimension(), mouth);
+        }
+        return false;
     }
 
     public static boolean isIntact(LevelReader level, BlockPos mouth, Direction facing) {

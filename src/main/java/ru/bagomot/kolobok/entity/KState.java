@@ -16,8 +16,6 @@ public enum KState {
     WANDER,
     /** Lying on the stove after a "death", 5 minutes. */
     RESTING,
-    /** Flattened for 60 s, invulnerable. */
-    PANCAKE,
     /** In a fox's mouth. */
     CAUGHT,
     /** On the owner's shoulder or head; see {@link RideSlot}. */

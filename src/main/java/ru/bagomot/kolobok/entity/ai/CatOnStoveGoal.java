@@ -26,8 +26,8 @@ import java.util.WeakHashMap;
 /**
  * A tame cat now and then takes a free place on top of a warm Russian stove, as vanilla cats sit on
  * a lit furnace: it walks up beside the stove, springs two blocks up onto the place, sits there for
- * a while facing the room and jumps down again. A Kolobok coming home to a stove with no other
- * place free shoos it off ({@link #shoo}).
+ * a while facing the room and jumps down again. A Kolobok coming home to the place it sits on
+ * shoos it off ({@link #shoo}).
  *
  * <p>Added beside the cat's own goals when it is loaded; nothing of vanilla's is changed.
  */

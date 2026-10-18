@@ -53,9 +53,6 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final double BUBBLE_THROUGH_DISTANCE = 16.0;
     private static final int BURNT_TINT = 0xFF8A6A58;
     private static final int GOLDEN_TINT = 0xFFFFE08A;
-    /** A pancake: wide and flat. */
-    private static final float PANCAKE_WIDTH = 1.3F;
-    private static final float PANCAKE_HEIGHT = 0.3F;
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
@@ -90,7 +87,6 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
 
         state.burnt = entity.hasFlag(KolobokEntity.FLAG_BURNT);
         state.golden = entity.hasPerk(Perk.ENDER_DRAGON);
-        state.pancake = entity.getKState() == KState.PANCAKE;
         state.bubble = List.of();
         Component text = entity.clientSongLine != null ? entity.clientSongLine : entity.clientLine;
         if (text != null && KConfig.client().bubbles()) {
@@ -164,9 +160,6 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     protected void scale(KolobokRenderState state, PoseStack poseStack) {
         if (state.variant == Variant.MINI) {
             poseStack.scale(MINI_SCALE, MINI_SCALE, MINI_SCALE);
-        }
-        if (state.pancake) {
-            poseStack.scale(PANCAKE_WIDTH, PANCAKE_HEIGHT, PANCAKE_WIDTH);
         }
     }
 

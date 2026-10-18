@@ -71,10 +71,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.AABB;
@@ -86,6 +89,7 @@ import ru.bagomot.kolobok.block.StoveBlockEntity;
 import ru.bagomot.kolobok.block.StovePart;
 import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.block.StovePattern;
+import ru.bagomot.kolobok.block.StoveRegistry;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.ai.CatOnStoveGoal;
 import ru.bagomot.kolobok.entity.ai.Goals;
@@ -110,8 +114,8 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
- * Колобок. A tamable pet that never really dies, sings his way out of trouble and rides on his
- * owner's shoulder.
+ * Колобок. A tamable pet that does not die while he has a stove, sings his way out of trouble and
+ * rides on his owner's shoulder.
  *
  * <p>He is born in the горнило of a Russian stove: hot and asleep in there, then, cooled, he opens
  * his eyes, hops out and rolls away from whoever is looking. Every twenty seconds of the chase his
@@ -119,7 +123,8 @@ import java.util.function.Consumer;
  * whole verse has listened; milk then may tame him, and every song listened to makes that likelier.
  *
  * <p>Tamed, he sometimes climbs into a cold, empty горнило and sits there a while. «Killed», he gets
- * away to a free place on top of his stove.
+ * away to his place on top of his stove, from any dimension; with no stove to get to, he dies for
+ * good.
  */
 public class KolobokEntity extends TamableAnimal {
 
@@ -209,12 +214,8 @@ public class KolobokEntity extends TamableAnimal {
     private static final double VISIT_OWNER_RANGE = 10.0;
     private static final int HOP_TICKS = 10;
 
-    /** After a «death» he lies on his stove for five minutes… */
+    /** After a «death» he lies on his stove for five minutes. */
     private static final int REST_TICKS = 6000;
-    /** …or, with no stove to get to, is a pancake for a minute. */
-    private static final int PANCAKE_TICKS = 1200;
-    /** Mobs this close forget about a pancake. */
-    private static final double PANCAKE_FORGET_RANGE = 16.0;
     /** A verse is earned by being alive half a minute after a mob's hit at most… */
     private static final int VERSE_WINDOW = 600;
     /** …and either this far from the mob… */
@@ -320,7 +321,7 @@ public class KolobokEntity extends TamableAnimal {
     private int charmedTicks;
     private int nextSong;
 
-    /** RESTING or PANCAKE: ticks left. */
+    /** RESTING: ticks left. */
     private int escapeTicks;
     /** The last mob that hit him whose verse he does not have yet, and when. */
     private @Nullable UUID attacker;
@@ -544,6 +545,7 @@ public class KolobokEntity extends TamableAnimal {
         output.putInt("NextVerse", nextVerse);
         output.store("Verses", Codec.STRING.listOf(), verses());
         output.putInt("EscapeTicks", escapeTicks);
+        output.putBoolean("NewVerse", newVerseToSing);
         output.putInt("CaughtTicks", caughtTicks);
         output.putString("AfterCaught", afterCaught.name());
         output.putLong("FoxSafeUntil", foxSafeUntil);
@@ -579,6 +581,7 @@ public class KolobokEntity extends TamableAnimal {
         nextVerse = input.getIntOr("NextVerse", 1);
         entityData.set(DATA_VERSES, SongText.joinVerses(input.read("Verses", Codec.STRING.listOf()).orElse(List.of())));
         escapeTicks = input.getIntOr("EscapeTicks", 0);
+        newVerseToSing = input.getBooleanOr("NewVerse", false);
         caughtTicks = input.getIntOr("CaughtTicks", CAUGHT_TICKS);
         try {
             afterCaught = KState.valueOf(input.getStringOr("AfterCaught", KState.FOLLOW.name()));
@@ -713,7 +716,7 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * While hot, in the горнило, resting, flat, in a fox's mouth or on a player, the whole AI step is
+     * While hot, in the горнило, resting, in a fox's mouth or on a player, the whole AI step is
      * skipped: nothing may move him. In the горнило and on a player the server places him itself;
      * a hop is placed tick by tick too.
      */
@@ -732,13 +735,12 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * Hot or sitting in the горнило, resting on the stove, flat as a pancake or in a fox's mouth:
-     * nothing but the void and {@code /kill} hurts him, and no mob sees him as a target.
+     * Hot or sitting in the горнило, resting on the stove or in a fox's mouth: nothing but the void
+     * and {@code /kill} hurts him, and no mob sees him as a target.
      */
     public boolean isSheltered() {
         KState state = getKState();
-        return state == KState.HOT || state == KState.IN_STOVE || state == KState.RESTING
-                || state == KState.PANCAKE || state == KState.CAUGHT;
+        return state == KState.HOT || state == KState.IN_STOVE || state == KState.RESTING || state == KState.CAUGHT;
     }
 
     // ------------------------------------------------------------------------------------ ticking
@@ -758,7 +760,6 @@ public class KolobokEntity extends TamableAnimal {
                 case CAUGHT -> caughtTick(serverLevel);
                 case RUNAWAY -> chaseTick();
                 case RESTING -> restTick(serverLevel);
-                case PANCAKE -> pancakeTick(serverLevel);
                 default -> {
                 }
             }
@@ -796,8 +797,6 @@ public class KolobokEntity extends TamableAnimal {
             mood = Mood.SLEEP;
         } else if (state == KState.CAUGHT) {
             mood = Mood.SCARED;
-        } else if (state == KState.PANCAKE) {
-            mood = Mood.DIZZY;
         } else if (isSinging()) {
             mood = Mood.SING;
         } else if (dizzyTicks > 0) {
@@ -1413,37 +1412,43 @@ public class KolobokEntity extends TamableAnimal {
     // ------------------------------------------------------------------------------------ «doesn't die»
 
     /**
-     * He never dies: «killed», he gets away to his stove, or, with none to get to, goes flat for a
-     * minute. Only what bypasses invulnerability ({@code /kill}, the void) is a real death.
+     * He does not die while he has a stove: «killed», he gets away to his place on top of it. With no
+     * stove, or no place on it, he dies for good and drops all he wore; so he does by whatever
+     * bypasses invulnerability ({@code /kill}, the void).
      */
     @Override
     public void die(DamageSource source) {
-        if (level() instanceof ServerLevel serverLevel) {
-            if (!source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)) {
-                setHealth(1.0F);
-                escape(serverLevel);
-                return;
-            }
-            leaveHomeForGood(serverLevel);
+        if (level() instanceof ServerLevel serverLevel && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY)
+                && getAway(serverLevel)) {
+            return;
         }
         super.die(source);
     }
 
     /**
-     * Really gone: his stove forgets him, so his place on it is free and it can bake another. The
-     * stove may be far off and unloaded; its chunk is loaded for this, once.
+     * Gets away to his own place on top of his stove, in whatever dimension it stands, through
+     * {@link StoveRegistry}: nothing is loaded for this. If nobody is there, he lies in the unloaded
+     * chunk until someone comes.
+     *
+     * @return whether he got away; {@code false} if he has no stove standing or no place on it
      */
-    private void leaveHomeForGood(ServerLevel level) {
+    private boolean getAway(ServerLevel level) {
         if (home == null || homeDimension == null) {
-            return;
+            return false;
         }
         ServerLevel homeLevel = level.getServer().getLevel(homeDimension);
-        if (homeLevel != null && homeLevel.getBlockEntity(home) instanceof StoveBlockEntity stove) {
-            stove.forget(getUUID());
+        StoveRegistry registry = StoveRegistry.of(level.getServer());
+        Direction facing = registry.facing(homeDimension, home);
+        if (homeLevel == null || facing == null || !StovePattern.checkListed(homeLevel, home, facing)) {
+            return false;
         }
-    }
+        int index = registry.adopt(homeDimension, home, getUUID());
+        if (index < 0) {
+            return false;
+        }
+        Vec3 place = StovePattern.topSlots(home, facing).get(index);
 
-    private void escape(ServerLevel level) {
+        setHealth(1.0F);
         level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.3, getZ(), 12, 0.25, 0.25, 0.25, 0.02);
         stopSong();
         if (getKState() == KState.ON_PLAYER) {
@@ -1456,60 +1461,64 @@ public class KolobokEntity extends TamableAnimal {
         // Whatever was killing him stays behind: no withering on the stove.
         removeAllEffects();
         clearFire();
-        setDeltaMovement(Vec3.ZERO);
         resetFallDistance();
-
         hop = null;
         oven = null;
-        Direction stove = homeStove(level);
-        Vec3 bench = stove == null ? null : placeOnStove(level, stove);
-        if (bench != null) {
-            teleportTo(bench.x, bench.y, bench.z);
-            face(stove.toYRot());
-            setKState(KState.RESTING);
-            escapeTicks = REST_TICKS;
-            addEffect(new MobEffectInstance(MobEffects.REGENERATION, 600, 0));
-            level.sendParticles(ParticleTypes.POOF, bench.x, bench.y + 0.3, bench.z, 12, 0.25, 0.25, 0.25, 0.02);
-            say("rest");
-        } else {
-            setKState(KState.PANCAKE);
-            escapeTicks = PANCAKE_TICKS;
-            // Flattened is not «got away»: no verse for whoever did it.
+        // Whoever was after him is left behind, and is never in time to catch him on the stove.
+        if (attackerType != null && level.getGameTime() - attackerHit <= VERSE_WINDOW) {
+            String type = attackerType;
             forgetAttacker();
-            loseTargets(level);
-            say("pancake");
+            learnVerse(type);
         }
+        setKState(KState.RESTING);
+        escapeTicks = REST_TICKS;
+        addEffect(new MobEffectInstance(MobEffects.REGENERATION, 600, 0));
+
+        // A cat on his place makes room.
+        List<Cat> cats = homeLevel.getEntitiesOfClass(Cat.class, new AABB(place, place).inflate(0.4, 0.6, 0.4));
+        for (Cat cat : cats) {
+            CatOnStoveGoal.shoo(cat, place);
+        }
+        // Into another dimension he arrives as a new entity, carrying over everything that is saved.
+        Entity moved = teleport(new TeleportTransition(homeLevel, place, Vec3.ZERO, facing.toYRot(), 0.0F,
+                TeleportTransition.DO_NOTHING));
+        if (moved instanceof KolobokEntity kolobok) {
+            kolobok.face(facing.toYRot());
+            kolobok.say(cats.isEmpty() ? "rest" : "shoo");
+        }
+        homeLevel.sendParticles(ParticleTypes.POOF, place.x, place.y + 0.3, place.z, 12, 0.25, 0.25, 0.25, 0.02);
+        return true;
     }
 
     /**
-     * Picks his place on top of his stove: the first free one of the five, front middle first. The
-     * stove has to remember him, or take him in if it has room (it does not remember Kolobki baked
-     * before it was last built). With every other place taken, a cat sitting on one is shooed off.
-     *
-     * @return the middle of the place, or {@code null} if the stove has no place for him
+     * Gone for good, killed or discarded: his place on his stove is free for another Kolobok.
+     * Unloading with the chunk is not that, nor is moving to another dimension.
      */
-    private @Nullable Vec3 placeOnStove(ServerLevel level, Direction facing) {
-        if (!(level.getBlockEntity(home) instanceof StoveBlockEntity stove) || !stove.adopt(getUUID())) {
-            return null;
+    @Override
+    public void remove(RemovalReason reason) {
+        if (reason.shouldDestroy() && level() instanceof ServerLevel serverLevel) {
+            StoveRegistry.of(serverLevel.getServer()).forget(getUUID());
         }
-        List<Vec3> places = StovePattern.topSlots(home, facing);
-        for (Vec3 place : places) {
-            if (!CatOnStoveGoal.isTaken(level, place, this)) {
-                return place;
-            }
-        }
-        for (Vec3 place : places) {
-            List<Cat> cats = level.getEntitiesOfClass(Cat.class, new AABB(place, place).inflate(0.4, 0.6, 0.4));
-            if (!cats.isEmpty()) {
-                for (Cat cat : cats) {
-                    CatOnStoveGoal.shoo(cat, place);
+        super.remove(reason);
+    }
+
+    /**
+     * Dead for good: all he wore falls where he was, whole and whatever the game rules say of mob
+     * loot, as a horse's saddle and chest do. Before the mob's own drop chances get a go, which would
+     * drop a helmet one time in twelve, battered.
+     */
+    @Override
+    protected void dropAllDeathLoot(ServerLevel level, DamageSource source) {
+        for (EquipmentSlot slot : EquipmentSlot.VALUES) {
+            ItemStack stack = getItemBySlot(slot);
+            if (!stack.isEmpty()) {
+                setItemSlot(slot, ItemStack.EMPTY);
+                if (!EnchantmentHelper.has(stack, EnchantmentEffectComponents.PREVENT_EQUIPMENT_DROP)) {
+                    spawnAtLocation(level, stack);
                 }
-                say("shoo");
-                return place;
             }
         }
-        // Only someone else's Kolobok climbing about up there: share.
-        return places.getFirst();
+        super.dropAllDeathLoot(level, source);
     }
 
     /**
@@ -1539,18 +1548,8 @@ public class KolobokEntity extends TamableAnimal {
         }
     }
 
-    private void pancakeTick(ServerLevel level) {
-        if (tickCount % 20 == 0) {
-            loseTargets(level);
-        }
-        if (--escapeTicks <= 0) {
-            wake("unflat");
-        }
-    }
-
     /**
-     * Up from the stove or puffed back into shape: tamed, he follows again; untamed, the chase
-     * starts over.
+     * Up from the stove: tamed, he follows again; untamed, the chase starts over.
      */
     private void wake(String line) {
         escapeTicks = 0;
@@ -1561,13 +1560,6 @@ public class KolobokEntity extends TamableAnimal {
             chaseTicks = CHASE_STOP_TICKS - FIRST_STOP_TICKS;
         }
         say(line);
-    }
-
-    private void loseTargets(ServerLevel level) {
-        for (Mob mob : level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(PANCAKE_FORGET_RANGE),
-                mob -> mob.getTarget() == this)) {
-            mob.setTarget(null);
-        }
     }
 
     @Override
@@ -1961,12 +1953,6 @@ public class KolobokEntity extends TamableAnimal {
 
         if (getKState() == KState.HOT) {
             burn(player);
-            return InteractionResult.SUCCESS;
-        }
-        if (getKState() == KState.PANCAKE) {
-            if (!level().isClientSide()) {
-                say("pancake");
-            }
             return InteractionResult.SUCCESS;
         }
         if (getKState() == KState.RESTING && stack.isEmpty() && owner) {

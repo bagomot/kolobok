@@ -12,12 +12,18 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.WrittenBookContent;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import ru.bagomot.kolobok.block.StovePattern;
+import ru.bagomot.kolobok.block.StoveRegistry;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Mood;
@@ -30,8 +36,9 @@ import java.util.function.Predicate;
 /**
  * The v0.3 scene: a tamed Kolobok with a home stove is hit by a zombie and gets away, earns the
  * verse and its perk and sings the new song; «killed», he turns up resting on his stove and the
- * owner wakes him; he writes his song into the songbook, which opens as a book; with the stove
- * gone, the next «death» leaves him a pancake that nothing hurts.
+ * owner wakes him; he writes his song into the songbook, which opens as a book; «killed» in the
+ * Nether, he is back on his place on the stove; with the stove gone, the next «death» is for good
+ * and drops the helmet he wore.
  */
 public final class VersesVisualTest implements FabricClientGameTest {
 
@@ -58,7 +65,7 @@ public final class VersesVisualTest implements FabricClientGameTest {
             server.runCommand(VIEW);
             server.runOnServer(s -> StovePattern.assemble(s.overworld(), MOUTH));
             // His own Kolobok, at home in this stove. Without AI he stays in the picture instead of
-            // rolling off in a panic when the zombie hits him; verses, rest and the pancake are not AI.
+            // rolling off in a panic when the zombie hits him; verses and the rest are not AI.
             server.runCommand("summon kolobok:kolobok 0.5 -60 0.5 {NoAI:1b,Tags:[\"k\"],Rotation:[0f,0f]}");
             context.waitTicks(5);
             server.runOnServer(s -> {
@@ -147,21 +154,61 @@ public final class VersesVisualTest implements FabricClientGameTest {
             context.takeScreenshot("verses-05-songbook-perks");
             context.setScreen(() -> null);
 
-            // Without a stove to get to, the next «death» leaves a pancake that nothing hurts.
-            server.runCommand("setblock -1 -59 -5 minecraft:air");
-            context.waitTicks(25);
-            server.runCommand("tp " + K + " 0.5 -60 0.5");
+            // «Killed» in the Nether, he gets away to his place on the stove in the overworld.
+            server.runCommand("execute in minecraft:the_nether run forceload add 0 0");
+            server.runCommand("execute in minecraft:the_nether run fill -2 100 -2 2 103 2 minecraft:air");
+            server.runCommand("execute in minecraft:the_nether run fill -2 99 -2 2 99 2 minecraft:obsidian");
+            server.runCommand("execute in minecraft:the_nether run tp " + K + " 0.5 100 0.5");
+            waitFor(context, server, 40, "him in the Nether", s -> !kolobki(s.getLevel(Level.NETHER)).isEmpty());
             server.runCommand("damage " + K + " 100 minecraft:generic");
             context.waitTicks(3);
-            check(server, "a pancake", k -> k.isAlive() && k.getKState() == KState.PANCAKE && k.getMood() == Mood.DIZZY);
-            server.runCommand("damage " + K + " 5 minecraft:generic");
-            context.waitTicks(2);
-            check(server, "unhurt as a pancake", k -> k.getKState() == KState.PANCAKE && k.getHealth() == 1.0F);
-            server.runCommand(VIEW);
+            server.runOnServer(s -> {
+                if (!kolobki(s.getLevel(Level.NETHER)).isEmpty()) {
+                    throw new AssertionError("He stayed in the Nether");
+                }
+            });
+            check(server, "back on his place from the Nether", k -> k.isAlive() && k.getKState() == KState.RESTING
+                    && k.position().distanceTo(StovePattern.topSlots(MOUTH, Direction.SOUTH).getFirst()) < 0.01);
+            server.runCommand("execute in minecraft:the_nether run forceload remove 0 0");
+            server.runCommand(VIEW_TOP);
             context.waitTicks(30);
             clearChat(context);
-            context.takeScreenshot("verses-06-pancake");
+            context.takeScreenshot("verses-06-home-from-nether");
+            server.runCommand("item replace entity @a weapon.mainhand with minecraft:air");
+            server.runOnServer(s -> kolobok(s).mobInteract(player(s), InteractionHand.MAIN_HAND));
+            check(server, "woken again", k -> k.getKState() == KState.FOLLOW);
+
+            // With no stove to get to, he dies for good, and what he wore falls where he was.
+            server.runCommand("item replace entity " + K + " armor.head with minecraft:golden_helmet");
+            server.runCommand("setblock -1 -59 -5 minecraft:air");
+            context.waitTicks(5);
+            server.runOnServer(s -> {
+                if (StoveRegistry.of(s).facing(Level.OVERWORLD, MOUTH) != null) {
+                    throw new AssertionError("The broken stove is still on the list");
+                }
+            });
+            server.runCommand("tp " + K + " 0.5 -60 0.5");
+            server.runCommand("damage " + K + " 100 minecraft:generic");
+            context.waitTicks(30);
+            server.runOnServer(s -> {
+                if (!kolobki(s.overworld()).isEmpty()) {
+                    throw new AssertionError("He outlived his stove");
+                }
+                List<ItemEntity> helmets = s.overworld().getEntitiesOfClass(ItemEntity.class,
+                        new AABB(MOUTH).inflate(8.0), item -> item.getItem().is(Items.GOLDEN_HELMET));
+                if (helmets.size() != 1 || helmets.getFirst().getItem().isDamaged()) {
+                    throw new AssertionError("Expected his golden helmet on the ground, whole, got " + helmets);
+                }
+            });
+            server.runCommand(VIEW);
+            context.waitTicks(10);
+            clearChat(context);
+            context.takeScreenshot("verses-07-gone");
         }
+    }
+
+    private static List<? extends KolobokEntity> kolobki(ServerLevel level) {
+        return level.getEntities(KEntities.KOLOBOK.get(), e -> true);
     }
 
     /** The chat would cover him in the low half of the picture. */
@@ -209,7 +256,7 @@ public final class VersesVisualTest implements FabricClientGameTest {
     }
 
     private static KolobokEntity kolobok(MinecraftServer server) {
-        List<? extends KolobokEntity> all = server.overworld().getEntities(KEntities.KOLOBOK.get(), e -> true);
+        List<? extends KolobokEntity> all = kolobki(server.overworld());
         if (all.isEmpty()) {
             throw new AssertionError("No Kolobok in the world");
         }

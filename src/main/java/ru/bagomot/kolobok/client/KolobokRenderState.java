@@ -17,8 +17,6 @@ public final class KolobokRenderState extends LivingEntityRenderState {
     public boolean burnt;
     /** «Легенда»: got away from the dragon, drawn with a golden crust. */
     public boolean golden;
-    /** Flat as a pancake for a minute after a «death» far from his stove. */
-    public boolean pancake;
     /** Drawn at a player's shoulder or head rather than where the entity stands. */
     public boolean onPlayer;
     /** On the camera player's own head in first person: drawn not at all, like a shoulder parrot. */
