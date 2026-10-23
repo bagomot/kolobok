@@ -1,7 +1,10 @@
 package ru.bagomot.kolobok.client;
 
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
+import org.jspecify.annotations.Nullable;
+import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Variant;
 
 import java.util.List;
@@ -23,6 +26,19 @@ public final class KolobokRenderState extends LivingEntityRenderState {
     public boolean onPlayer;
     /** On the camera player's own head in first person: drawn not at all, like a shoulder parrot. */
     public boolean hidden;
+    /** What is on his head. His own hats are drawn from {@code headItem}. */
+    public Outfit.Hat hat = Outfit.Hat.NONE;
+    /** The шелом's metal; the бармица only on a chainmail one. */
+    public @Nullable Identifier helmetTexture;
+    public boolean aventail;
+    /** The ушанка's fur colour, the leather helmet's dye. */
+    public int hatColour = -1;
+    /** The лапти's texture, or {@code null} without boots or as the Head; dyed ones are tinted. */
+    public @Nullable Identifier lapti;
+    public int laptiColour = -1;
+    public boolean glasses;
+    /** The Head from «Руслан и Людмила»: he grows to 1.75 over a second. */
+    public float headScale = 1.0F;
     /** Speech bubble lines, already wrapped; empty when he is quiet. */
     public List<FormattedCharSequence> bubble = List.of();
     public int bubbleWidth;

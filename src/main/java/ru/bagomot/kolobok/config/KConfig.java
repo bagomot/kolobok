@@ -77,6 +77,8 @@ public final class KConfig {
         public int tameChanceDenominator = 3;
         /** Foxes hunt Kolobki and carry them off, as in the tale. */
         public boolean foxHunting = true;
+        /** A tamed Kolobok now and then runs off from his owner to sing to animals, and comes back. */
+        public boolean escapades = true;
     }
 
     /** How Kolobok talks to this player. */

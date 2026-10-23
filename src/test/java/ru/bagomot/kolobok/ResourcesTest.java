@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 import ru.bagomot.kolobok.block.StovePart;
+import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Perk;
 import ru.bagomot.kolobok.entity.Variant;
 import ru.bagomot.kolobok.entity.song.SongLine;
@@ -186,6 +187,72 @@ class ResourcesTest {
         }
         json("data/kolobok/recipe/rolling_pin.json");
         json("data/kolobok/loot_table/blocks/stove_part.json");
+    }
+
+    @Test
+    void theHatsHaveModelsTexturesRecipesAndNames() throws IOException {
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        for (String hat : List.of("crown", "wreath", "kokoshnik")) {
+            json("assets/kolobok/items/" + hat + ".json");
+            json("data/kolobok/recipe/" + hat + ".json");
+            json("data/kolobok/advancement/recipes/combat/" + hat + ".json");
+            assertTrue(ru.has("item.kolobok." + hat) && en.has("item.kolobok." + hat), hat);
+        }
+        for (String model : List.of("crown", "wreath", "wreath_dyed", "kokoshnik")) {
+            JsonObject textures = json("assets/kolobok/models/item/" + model + ".json").getAsJsonObject("textures");
+            for (String name : textures.keySet()) {
+                String texture = textures.get(name).getAsString();
+                try (InputStream png = resource("assets/kolobok/textures/" + texture.substring("kolobok:".length()) + ".png")) {
+                    assertNotNull(png, texture);
+                }
+            }
+        }
+        // Dyed like leather, and washed in a cauldron like it.
+        var washable = json("data/minecraft/tags/item/cauldron_can_remove_dye.json").getAsJsonArray("values");
+        for (String hat : List.of("wreath", "kokoshnik")) {
+            assertEquals("minecraft:crafting_dye", json("data/kolobok/recipe/" + hat + "_dyed.json").get("type").getAsString());
+            json("data/kolobok/advancement/recipes/misc/" + hat + "_dyed.json");
+            assertTrue(washable.contains(new JsonPrimitive("kolobok:" + hat)), hat);
+        }
+        for (String key : List.of("item.kolobok.kladenets", "item.kolobok.kladenets.lore")) {
+            assertTrue(ru.has(key) && en.has(key), key);
+        }
+    }
+
+    @Test
+    void everyOutfitHeWearsHasItsTexture() throws IOException {
+        for (Outfit.Material material : Outfit.Material.values()) {
+            // A leather helmet is an ушанка, never a шелом.
+            if (material != Outfit.Material.LEATHER) {
+                texture("entity/kolobok/outfit/helmet_" + material.serializedName());
+            }
+            texture("entity/kolobok/outfit/lapti_" + material.serializedName());
+        }
+        for (String name : List.of("ushanka", "lapti_dyed", "glasses")) {
+            texture("entity/kolobok/outfit/" + name);
+        }
+    }
+
+    @Test
+    void theHeadSnoresAndSneezesFromFiles() throws IOException {
+        JsonObject sounds = json("assets/kolobok/sounds.json");
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        for (String name : List.of("snore", "sneeze")) {
+            assertTrue(sounds.has(name), name);
+            String subtitle = sounds.getAsJsonObject(name).get("subtitle").getAsString();
+            assertTrue(ru.has(subtitle) && en.has(subtitle), subtitle);
+            try (InputStream ogg = resource("assets/kolobok/sounds/voice/" + name + ".ogg")) {
+                assertNotNull(ogg, name + ".ogg");
+            }
+        }
+    }
+
+    private static void texture(String path) throws IOException {
+        try (InputStream png = resource("assets/kolobok/textures/" + path + ".png")) {
+            assertNotNull(png, path);
+        }
     }
 
     /**

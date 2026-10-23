@@ -586,5 +586,17 @@
     "sounds": [
       "kolobok:voice/i"
     ]
+  },
+  "snore": {
+    "subtitle": "subtitles.kolobok.snore",
+    "sounds": [
+      "kolobok:voice/snore"
+    ]
+  },
+  "sneeze": {
+    "subtitle": "subtitles.kolobok.sneeze",
+    "sounds": [
+      "kolobok:voice/sneeze"
+    ]
   }
 }

@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -21,7 +22,7 @@ import net.minecraft.stats.Stats;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.tags.TagKey;
-import net.minecraft.util.Mth;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -38,6 +39,7 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.OwnableEntity;
+import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.SpawnGroupData;
 import net.minecraft.world.entity.TamableAnimal;
@@ -57,6 +59,7 @@ import net.minecraft.world.entity.ai.goal.SitWhenOrderedToGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
 import net.minecraft.world.entity.ai.targeting.TargetingConditions;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
+import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.feline.Cat;
 import net.minecraft.world.entity.animal.fox.Fox;
@@ -65,10 +68,14 @@ import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Witch;
+import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.Rarity;
+import net.minecraft.world.item.component.ItemLore;
+import net.minecraft.world.item.equipment.Equippable;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
@@ -76,8 +83,10 @@ import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
@@ -99,13 +108,16 @@ import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KSounds;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -122,6 +134,10 @@ import java.util.function.Consumer;
  * <p>Tamed, he sometimes climbs into a cold, empty горнило and sits there a while. Hurt badly, he
  * goes to warm up on top of a warm stove nearby until he is whole again; three days without milk
  * and he goes stale, and heals there slowly. Killed, he is dead, and what he wore falls.
+ *
+ * <p>He wears what his owner puts on him: a helmet, boots, his own crown, wreath or kokoshnik, tinted
+ * glass for sunglasses (see {@link Outfit}). Sitting in a metal helmet he sometimes plays the Head
+ * from «Руслан и Людмила». Following or wandering, now and then he runs off to sing to animals.
  */
 public class KolobokEntity extends TamableAnimal {
 
@@ -270,6 +286,61 @@ public class KolobokEntity extends TamableAnimal {
     private static final int SLEEPLESS_TICKS = 72000;
     private static final int PHANTOM_WARNING_GAP = 6000;
 
+    /** In лапти he walks instead of rolling, a fifth slower. */
+    private static final double LAPTI_SPEED = -0.2;
+
+    /**
+     * «Голова»: sitting or on guard in a metal helmet, once a minute he may fall asleep as the Head,
+     * one time in twenty, if there is room above him to grow…
+     */
+    private static final int HEAD_ACT_CHECK = 1200;
+    private static final int HEAD_ACT_CHANCE = 20;
+    private static final double HEAD_ACT_ROOM = 2.0;
+    /** …and snores so for a minute. */
+    private static final int HEAD_ACT_TICKS = 1200;
+    private static final int SNORE_GAP = 40;
+    /** Tickled with a feather, he sneezes a gust: this far, in a cone this wide… */
+    private static final double SNEEZE_RANGE = 6.0;
+    private static final double SNEEZE_HALF_ANGLE = Math.toRadians(30.0);
+    private static final double SNEEZE_PUSH = 1.2;
+    /** …with an echo a little later, at most every five seconds, and he stays awake a moment. */
+    private static final int SNEEZE_ECHO_TICKS = 8;
+    private static final int SNEEZE_GAP = 100;
+    private static final int GOLOVA_AWAKE_TICKS = 40;
+    /** Hit by a player, the Head rolls off about three blocks. */
+    private static final double HEAD_ROLL_SPEED = 0.5;
+
+    /**
+     * Escapades. Following or wandering, a tamed Kolobok thinks about running off every twenty to
+     * forty seconds; he goes to animals he sees with one chance in three, alone with one in twelve…
+     */
+    private static final int ESCAPADE_CHECK = 400;
+    private static final int ESCAPADE_CHANCE = 3;
+    private static final int ESCAPADE_ALONE_CHANCE = 12;
+    /** …but not within a minute and a half of the last one. */
+    private static final int ESCAPADE_GAP = 1800;
+    /** He sees an audience this far off, and rolls off this far when there is none. */
+    private static final double ESCAPADE_RANGE = 48.0;
+    private static final int ESCAPADE_ALONE_RANGE = 24;
+    /** Following, he never gets further than this from his owner; left further behind, he hurries back. */
+    private static final double ESCAPADE_LEASH = 64.0;
+    /** Animals this close to each other are one herd; he picks the biggest he can see. */
+    private static final double HERD_RANGE = 6.0;
+    /** He sings once he is this close to them… */
+    private static final double CONCERT_ARRIVE = 4.0;
+    /** …then hangs about for half a minute to a minute and a half… */
+    private static final int LINGER_MIN = 600;
+    private static final int LINGER_SPREAD = 1200;
+    private static final int LINGER_ROAM = 6;
+    /** …and following, rolls back until his owner is this close. */
+    private static final double ESCAPADE_HOME = 6.0;
+    private static final int ESCAPADE_STUCK_TICKS = 200;
+    /** A song is a concert: animals this close come up and watch, players this close get going. */
+    private static final double CONCERT_RANGE = 8.0;
+    private static final double CONCERT_SPOT = 2.5;
+    private static final double CONCERT_PLAYERS = 6.0;
+    private static final int CONCERT_SPEED_TICKS = 400;
+
     /**
      * Client-side per-tick work: rolling, blinking, mumbling, steam. Installed by the client
      * initialiser so that this class never mentions a client type and still loads on a dedicated
@@ -297,6 +368,9 @@ public class KolobokEntity extends TamableAnimal {
     public @Nullable Component clientSongLine;
     /** Ticks the mouth stays open after a sung note. */
     public int clientMouthTicks;
+    /** How big he is drawn: 1, or up to 1.75 as the Head. */
+    public float clientHeadScale = 1.0F;
+    public float clientHeadScaleO = 1.0F;
 
     private int nextIdleChatter;
     private boolean carrierWasShifting;
@@ -362,6 +436,25 @@ public class KolobokEntity extends TamableAnimal {
     private boolean foxRescued;
     /** Rolling up to a fox: he does not fear it for that while. */
     private boolean curiousAboutFox;
+    /** HEAD_ACT: ticks left of the Head's sleep, and what he goes back to after it. */
+    private int headActTicks;
+    private KState afterHeadAct = KState.SIT;
+    private int nextHeadActCheck = HEAD_ACT_CHECK;
+    /** Awake for a moment after a sneeze, with the Head's moustache. */
+    private int golovaAwakeTicks;
+    private int nextSneeze;
+    /** The tick the sneeze's echo is due on, or 0. */
+    private int sneezeEcho;
+    /** The Head has given away its sword: once per Kolobok. */
+    private boolean kladenetsGiven;
+    /** Where an escapade has got to, the animal he runs to, the spot he heads for or hangs about at. */
+    private Escapade escapade = Escapade.NONE;
+    private @Nullable Mob escapadeAudience;
+    private Vec3 escapadeSpot = Vec3.ZERO;
+    private int escapadeTicks;
+    private int nextEscapade = ESCAPADE_GAP;
+    /** The next look at running off goes ahead whatever the dice say; for tests. */
+    private boolean forceEscapade;
     /** {@link #DATA_VERSES} parsed, and the string it was parsed from. */
     private String versesRaw = "";
     private List<String> verses = List.of();
@@ -533,8 +626,13 @@ public class KolobokEntity extends TamableAnimal {
         super.addAdditionalSaveData(output);
         output.putString("Variant", getVariant().serializedName());
         output.putByte("Flags", entityData.get(DATA_FLAGS));
-        // Sitting on a player is a session thing: the carrier is gone after a restart.
-        KState state = getKState() == KState.ON_PLAYER ? KState.FOLLOW : getKState();
+        // Sitting on a player is a session thing: the carrier is gone after a restart. The Head's sleep
+        // is a minute long; he wakes up from it.
+        KState state = switch (getKState()) {
+            case ON_PLAYER -> KState.FOLLOW;
+            case HEAD_ACT -> afterHeadAct;
+            default -> getKState();
+        };
         output.putString("State", state.name());
         output.putInt("HotTicks", hotTicks);
         output.storeNullable("Oven", BlockPos.CODEC, oven);
@@ -552,6 +650,7 @@ public class KolobokEntity extends TamableAnimal {
         output.putString("AfterCaught", afterCaught.name());
         output.putLong("FoxSafeUntil", foxSafeUntil);
         output.putBoolean("FoxRescued", foxRescued);
+        output.putBoolean("Kladenets", kladenetsGiven);
     }
 
     @Override
@@ -596,6 +695,7 @@ public class KolobokEntity extends TamableAnimal {
         }
         foxSafeUntil = input.getLongOr("FoxSafeUntil", 0L);
         foxRescued = input.getBooleanOr("FoxRescued", false);
+        kladenetsGiven = input.getBooleanOr("Kladenets", false);
         applyPerks();
         applyStale();
     }
@@ -688,6 +788,7 @@ public class KolobokEntity extends TamableAnimal {
             }
         });
         goalSelector.addGoal(4, new WarmUpGoal());
+        goalSelector.addGoal(4, new EscapadeGoal());
         goalSelector.addGoal(5, new FollowOwnerGoal(this, 1.1, 6.0F, 2.0F) {
             @Override
             public boolean canUse() {
@@ -723,13 +824,14 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * While hot, in the горнило, resting, in a fox's mouth or on a player, the whole AI step is
-     * skipped: nothing may move him. In the горнило and on a player the server places him itself;
-     * a hop is placed tick by tick too.
+     * While hot, in the горнило, resting, in a fox's mouth, on a player or asleep as the Head, the
+     * whole AI step is skipped: nothing may move him. In the горнило and on a player the server places
+     * him itself; a hop is placed tick by tick too.
      */
     @Override
     protected boolean isImmobile() {
-        return getKState() == KState.ON_PLAYER || isSheltered() || hop != null || super.isImmobile();
+        KState state = getKState();
+        return state == KState.ON_PLAYER || state == KState.HEAD_ACT || isSheltered() || hop != null || super.isImmobile();
     }
 
     /**
@@ -767,6 +869,7 @@ public class KolobokEntity extends TamableAnimal {
                 case CAUGHT -> caughtTick(serverLevel);
                 case RUNAWAY -> chaseTick();
                 case RESTING -> restTick(serverLevel);
+                case HEAD_ACT -> headActTick(serverLevel);
                 default -> {
                 }
             }
@@ -779,8 +882,14 @@ public class KolobokEntity extends TamableAnimal {
             }
             if (tickCount % 20 == 0) {
                 freshnessTick(serverLevel);
+                outfitTick(serverLevel);
+                // Sat down, hurt or called off while a song held his escapade: it is over.
+                if (escapade != Escapade.NONE && !mayEscape()) {
+                    endEscapade();
+                }
                 verseTick(serverLevel);
                 perkTick(serverLevel);
+                maybeStartHeadAct(serverLevel);
                 // The new verse waits for someone to sing it to, and for him to get to a stove if he
                 // is on his way.
                 if (newVerseToSing && !isSinging() && !isSheltered() && !goingToStove && hasAudience(serverLevel)) {
@@ -792,6 +901,10 @@ public class KolobokEntity extends TamableAnimal {
             }
             songTick(serverLevel);
             idleSong(serverLevel);
+            if (sneezeEcho != 0 && tickCount >= sneezeEcho) {
+                sneezeEcho = 0;
+                playSound(KSounds.SNEEZE.get(), 0.4F, voice() * 0.9F);
+            }
             updateMood();
             idleChatter();
         } else {
@@ -802,7 +915,9 @@ public class KolobokEntity extends TamableAnimal {
     private void updateMood() {
         KState state = getKState();
         Mood mood;
-        if (state == KState.HOT || state == KState.RESTING) {
+        if (state == KState.HEAD_ACT) {
+            mood = golovaAwakeTicks > 0 ? Mood.GOLOVA : Mood.GOLOVA_SLEEP;
+        } else if (state == KState.HOT || state == KState.RESTING) {
             mood = Mood.SLEEP;
         } else if (state == KState.CAUGHT) {
             mood = Mood.SCARED;
@@ -812,7 +927,7 @@ public class KolobokEntity extends TamableAnimal {
             mood = Mood.DIZZY;
         } else if (isPanicking()) {
             mood = Mood.SCARED;
-        } else if (state == KState.RUNAWAY && getNavigation().isInProgress()) {
+        } else if ((state == KState.RUNAWAY || escapade == Escapade.GOING) && getNavigation().isInProgress()) {
             mood = Mood.SLY;
         } else if (state == KState.SIT && level().isDarkOutside()) {
             mood = Mood.SLEEP;
@@ -831,6 +946,11 @@ public class KolobokEntity extends TamableAnimal {
         // The server talks at «radio» rate; each client keeps as much of it as its chattiness setting
         // asks for. Event lines are never filtered.
         nextIdleChatter = 600 + random.nextInt(1200);
+        if (getKState() == KState.HEAD_ACT) {
+            // The Head talks in its sleep.
+            say("golova_dream");
+            return;
+        }
         if (getMood() == Mood.SLEEP || isSinging() || isSheltered()) {
             return;
         }
@@ -1110,6 +1230,9 @@ public class KolobokEntity extends TamableAnimal {
         fidgeted.clear();
         heardSong.clear();
         getNavigation().stop();
+        if (level() instanceof ServerLevel level) {
+            gatherAudience(level);
+        }
     }
 
     /**
@@ -1125,9 +1248,13 @@ public class KolobokEntity extends TamableAnimal {
 
     /**
      * @return his manner of singing; the pitch is {@link #voice()}. The strongest character wins:
-     *         Колобочек, then soggy, then stale (outfits come before all of them)
+     *         a шелом or the crown, then Колобочек, then soggy, then stale
      */
     public Voice songVoice() {
+        Outfit.Hat hat = Outfit.hat(getItemBySlot(EquipmentSlot.HEAD));
+        if (hat != null && hat.manner() != null) {
+            return hat.manner();
+        }
         if (getVariant() == Variant.MINI) {
             return Voice.MINI;
         }
@@ -1156,6 +1283,11 @@ public class KolobokEntity extends TamableAnimal {
         if (!isTame()) {
             followListeners(level, elapsed);
         }
+        if (elapsed % 10 == 0) {
+            for (Mob animal : concertAudience(level)) {
+                animal.getLookControl().setLookAt(this);
+            }
+        }
         if (elapsed % 20 == 10) {
             if (!hasAudience(level)) {
                 stopSong();
@@ -1163,6 +1295,54 @@ public class KolobokEntity extends TamableAnimal {
                 return;
             }
             annoyListeners(level);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------ concert
+
+    /**
+     * @return whether he would sing to that mob: an animal or a villager, awake, not a fox (foxes are
+     *         a story of their own) and not another Kolobok
+     */
+    private static boolean isAudience(Mob mob) {
+        return (mob instanceof Animal || mob instanceof AbstractVillager) && !(mob instanceof KolobokEntity)
+                && !(mob instanceof Fox) && mob.isAlive() && !mob.isNoAi() && !mob.isSleeping();
+    }
+
+    /**
+     * @return the animals within earshot that come up and watch him sing: those run on goals (a brain
+     *         would overrule whatever he asks of them), free to walk (not ridden, carrying anyone,
+     *         leashed or told to sit) and not panicking
+     */
+    private List<Mob> concertAudience(ServerLevel level) {
+        return level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(CONCERT_RANGE), mob -> isAudience(mob)
+                && Goals.runsOnGoals(mob) && !mob.isVehicle() && !mob.isPassenger() && !mob.isLeashed()
+                && !(mob instanceof TamableAnimal pet && pet.isOrderedToSit())
+                && !(mob instanceof PathfinderMob pathfinder && pathfinder.isPanicking()));
+    }
+
+    /**
+     * A song is a concert: the animals within earshot come up to him and watch.
+     */
+    private void gatherAudience(ServerLevel level) {
+        for (Mob animal : concertAudience(level)) {
+            Vec3 way = animal.position().subtract(position()).multiply(1.0, 0.0, 1.0);
+            if (way.lengthSqr() <= CONCERT_SPOT * CONCERT_SPOT) {
+                continue;
+            }
+            Vec3 seat = position().add(way.normalize().scale(CONCERT_SPOT));
+            animal.getNavigation().moveTo(seat.x, seat.y, seat.z, 0.9);
+        }
+    }
+
+    /**
+     * The whole song sung through by a tamed Kolobok sends the players about him on their way with a
+     * spring in their step.
+     */
+    private void cheer(ServerLevel level) {
+        for (Player player : level.getEntitiesOfClass(Player.class, getBoundingBox().inflate(CONCERT_PLAYERS),
+                player -> !player.isSpectator())) {
+            player.addEffect(new MobEffectInstance(MobEffects.SPEED, CONCERT_SPEED_TICKS, 0), this);
         }
     }
 
@@ -1407,6 +1587,9 @@ public class KolobokEntity extends TamableAnimal {
                 return;
             }
         }
+        if (isTame() && entityData.get(DATA_SING_PART) == 0) {
+            cheer(level);
+        }
         if (isTame() || heard.isEmpty()) {
             return;
         }
@@ -1435,6 +1618,10 @@ public class KolobokEntity extends TamableAnimal {
                     spawnAtLocation(level, stack);
                 }
             }
+        }
+        if (hasFlag(FLAG_GLASSES)) {
+            setFlag(FLAG_GLASSES, false);
+            spawnAtLocation(level, new ItemStack(Items.TINTED_GLASS));
         }
         super.dropAllDeathLoot(level, source);
     }
@@ -1775,7 +1962,7 @@ public class KolobokEntity extends TamableAnimal {
         lureTick(level, owner);
         KState state = getKState();
         if (hasPerk(Perk.ENDERMAN) && (state == KState.FOLLOW || state == KState.WANDER) && !goingToStove
-                && distanceToSqr(owner) > ENDER_RANGE * ENDER_RANGE) {
+                && escapade == Escapade.NONE && distanceToSqr(owner) > ENDER_RANGE * ENDER_RANGE) {
             Vec3 from = position();
             tryToTeleportToOwner();
             if (!position().equals(from)) {
@@ -2052,12 +2239,33 @@ public class KolobokEntity extends TamableAnimal {
             }
             return InteractionResult.SUCCESS;
         }
+        if (getKState() == KState.HEAD_ACT) {
+            // Anyone may tickle the Head with a feather or a spear; its owner wakes it.
+            if (stack.is(Items.FEATHER) || stack.is(ItemTags.SPEARS)) {
+                if (level() instanceof ServerLevel serverLevel) {
+                    sneeze(serverLevel);
+                }
+                return InteractionResult.SUCCESS;
+            }
+            if (stack.isEmpty() && owner) {
+                if (!level().isClientSide()) {
+                    endHeadAct("golova_end");
+                }
+                return InteractionResult.SUCCESS;
+            }
+        }
         if (stack.is(KItems.SONGBOOK.get())) {
             return writeSongbook(stack, owner);
         }
         // On the stove he only takes milk.
         if (getKState() == KState.RESTING && !stack.is(Items.MILK_BUCKET)) {
             return InteractionResult.PASS;
+        }
+        if (stack.is(Items.SHEARS) && owner && hasAnyOutfit()) {
+            return shearOutfit(player, hand, stack);
+        }
+        if (isWearable(stack)) {
+            return dress(player, stack, owner);
         }
         if (stack.isEmpty() && owner && player.isShiftKeyDown()) {
             if (!level().isClientSide()) {
@@ -2176,7 +2384,330 @@ public class KolobokEntity extends TamableAnimal {
         if (stack.is(Items.TURTLE_HELMET)) {
             return "turtle";
         }
+        // A pumpkin, a skull: things that go on a head, but not on his.
+        Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
+        if (equippable != null && equippable.slot() == EquipmentSlot.HEAD) {
+            return "outfit_refuse";
+        }
         return null;
+    }
+
+    // ------------------------------------------------------------------------------------ outfit
+
+    /**
+     * @return whether he would put that on: a helmet or one of his hats, boots, tinted glass
+     */
+    private static boolean isWearable(ItemStack stack) {
+        if (stack.is(Items.TINTED_GLASS) || Outfit.isBoots(stack)) {
+            return true;
+        }
+        Outfit.Hat hat = Outfit.hat(stack);
+        return hat != null && hat != Outfit.Hat.NONE;
+    }
+
+    /**
+     * @return whether he wears anything: sunglasses, a hat or лапти
+     */
+    public boolean hasAnyOutfit() {
+        return hasFlag(FLAG_GLASSES) || !getItemBySlot(EquipmentSlot.HEAD).isEmpty() || !getItemBySlot(EquipmentSlot.FEET).isEmpty();
+    }
+
+    /**
+     * Puts it on him, one of the stack: a hat or a helmet on his head, boots on his feet, tinted glass
+     * over his eyes. What he wore there before goes back to the player. Only his owner dresses him.
+     */
+    private InteractionResult dress(Player player, ItemStack stack, boolean owner) {
+        if (level().isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!owner) {
+            say("dress_stranger");
+            return InteractionResult.SUCCESS;
+        }
+        if (stack.is(Items.TINTED_GLASS)) {
+            if (hasFlag(FLAG_GLASSES)) {
+                say("dress_same");
+                return InteractionResult.SUCCESS;
+            }
+            stack.consume(1, player);
+            setFlag(FLAG_GLASSES, true);
+            playSound(SoundEvents.ARMOR_EQUIP_GENERIC.value(), 1.0F, 1.0F);
+            gameEvent(GameEvent.EQUIP, player);
+            say("dress_glasses");
+            return InteractionResult.SUCCESS_SERVER;
+        }
+        boolean boots = Outfit.isBoots(stack);
+        EquipmentSlot slot = boots ? EquipmentSlot.FEET : EquipmentSlot.HEAD;
+        ItemStack old = getItemBySlot(slot);
+        if (ItemStack.isSameItemSameComponents(old, stack)) {
+            say("dress_same");
+            return InteractionResult.SUCCESS;
+        }
+        // The game plays the item's own equip sound.
+        setItemSlot(slot, stack.consumeAndReturn(1, player));
+        if (!old.isEmpty() && !player.addItem(old)) {
+            player.drop(old, false, Prediction.SERVER_ONLY);
+        }
+        Outfit.Hat hat = Outfit.hat(getItemBySlot(EquipmentSlot.HEAD));
+        say(boots ? "dress_lapti" : "dress_" + (hat == null ? Outfit.Hat.NONE : hat).name().toLowerCase(Locale.ROOT));
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
+     * Shears take one thing off him at a time, as off a wolf: the glasses, then the hat, then the
+     * лапти. It falls at his feet.
+     */
+    private InteractionResult shearOutfit(Player player, InteractionHand hand, ItemStack shears) {
+        if (!(level() instanceof ServerLevel level)) {
+            return InteractionResult.SUCCESS;
+        }
+        ItemStack off;
+        if (hasFlag(FLAG_GLASSES)) {
+            setFlag(FLAG_GLASSES, false);
+            off = new ItemStack(Items.TINTED_GLASS);
+        } else {
+            EquipmentSlot slot = getItemBySlot(EquipmentSlot.HEAD).isEmpty() ? EquipmentSlot.FEET : EquipmentSlot.HEAD;
+            off = getItemBySlot(slot);
+            setItemSlot(slot, ItemStack.EMPTY);
+        }
+        shears.hurtAndBreak(1, player, hand);
+        playSound(SoundEvents.SHEARS_SNIP, 1.0F, 1.0F);
+        gameEvent(GameEvent.SHEAR, player);
+        spawnAtLocation(level, off);
+        say("undress");
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
+     * Once a second. A dispenser may put on him what he will not wear: he spits it out. In лапти he
+     * walks rather than rolls, and slower.
+     */
+    private void outfitTick(ServerLevel level) {
+        ItemStack head = getItemBySlot(EquipmentSlot.HEAD);
+        if (!head.isEmpty() && Outfit.hat(head) == null) {
+            setItemSlot(EquipmentSlot.HEAD, ItemStack.EMPTY);
+            spawnAtLocation(level, head);
+            say(head.is(Items.TURTLE_HELMET) ? "turtle" : "outfit_refuse");
+        }
+        modifier(Attributes.MOVEMENT_SPEED, Kolobok.id("outfit/lapti"), LAPTI_SPEED, AttributeModifier.Operation.ADD_MULTIPLIED_BASE,
+                !getItemBySlot(EquipmentSlot.FEET).isEmpty());
+    }
+
+    /**
+     * A dispenser dresses him too, but only in what goes on a head or on feet.
+     */
+    @Override
+    protected boolean canDispenserEquipIntoSlot(EquipmentSlot slot) {
+        return slot == EquipmentSlot.HEAD || slot == EquipmentSlot.FEET;
+    }
+
+    // ------------------------------------------------------------------------------------ the Head
+
+    /**
+     * Once a second: sitting or on guard in a metal helmet, now and then he nods off and dreams he is
+     * the Head from «Руслан и Людмила», the giant one in a helmet that blew the knight away.
+     */
+    private void maybeStartHeadAct(ServerLevel level) {
+        KState state = getKState();
+        if (tickCount < nextHeadActCheck || !isTame() || !(state == KState.SIT || state == KState.GUARD)) {
+            return;
+        }
+        nextHeadActCheck = tickCount + HEAD_ACT_CHECK;
+        if (random.nextInt(HEAD_ACT_CHANCE) == 0) {
+            startHeadAct(level);
+        }
+    }
+
+    /**
+     * Grows into the Head and falls asleep, if he sits in a metal helmet with room above him to grow.
+     *
+     * @return whether he did
+     */
+    public boolean startHeadAct(ServerLevel level) {
+        KState state = getKState();
+        if (!(state == KState.SIT || state == KState.GUARD) || !Outfit.isMetalHelmet(getItemBySlot(EquipmentSlot.HEAD))
+                || isSinging() || hop != null) {
+            return false;
+        }
+        AABB box = getBoundingBox();
+        if (!level.noCollision(this, box.setMaxY(box.maxY + HEAD_ACT_ROOM))) {
+            return false;
+        }
+        afterHeadAct = state;
+        headActTicks = HEAD_ACT_TICKS;
+        golovaAwakeTicks = 0;
+        getNavigation().stop();
+        setKState(KState.HEAD_ACT);
+        return true;
+    }
+
+    private void headActTick(ServerLevel level) {
+        if (!Outfit.isMetalHelmet(getItemBySlot(EquipmentSlot.HEAD)) || --headActTicks <= 0) {
+            endHeadAct("golova_end");
+            return;
+        }
+        if (golovaAwakeTicks > 0) {
+            golovaAwakeTicks--;
+        } else if (headActTicks % SNORE_GAP == 0) {
+            playSound(KSounds.SNORE.get(), 0.7F, voice());
+        }
+    }
+
+    /**
+     * Wakes up from being the Head, back to sitting or guarding: «Приснится же…».
+     */
+    private void endHeadAct(String line) {
+        headActTicks = 0;
+        golovaAwakeTicks = 0;
+        setKState(afterHeadAct == KState.GUARD ? KState.GUARD : KState.SIT);
+        say(line);
+    }
+
+    /**
+     * @return whether he is the Head now, for the renderer
+     */
+    public boolean isHead() {
+        return getKState() == KState.HEAD_ACT;
+    }
+
+    /**
+     * Tickled, the Head sneezes: «Куда ты, витязь неразумный?» A gust blows everyone in front of it a
+     * few blocks back, without a scratch.
+     */
+    private void sneeze(ServerLevel level) {
+        if (tickCount < nextSneeze) {
+            return;
+        }
+        nextSneeze = tickCount + SNEEZE_GAP;
+        sneezeEcho = tickCount + SNEEZE_ECHO_TICKS;
+        golovaAwakeTicks = GOLOVA_AWAKE_TICKS;
+        Vec3 forward = Vec3.directionFromRotation(0.0F, getYRot());
+        Vec3 mouth = position().add(0.0, getBbHeight() * 0.6, 0.0).add(forward.scale(0.8));
+        playSound(KSounds.SNEEZE.get(), 1.0F, voice());
+        level.sendParticles(ParticleTypes.GUST, mouth.x, mouth.y, mouth.z, 1, 0.0, 0.0, 0.0, 0.0);
+        for (int i = 1; i <= 4; i++) {
+            Vec3 puff = mouth.add(forward.scale(i * 1.2));
+            level.sendParticles(ParticleTypes.SMALL_GUST, puff.x, puff.y, puff.z, 2, 0.3 * i, 0.2 * i, 0.3 * i, 0.0);
+        }
+        double cone = Math.cos(SNEEZE_HALF_ANGLE);
+        for (LivingEntity entity : level.getEntitiesOfClass(LivingEntity.class, getBoundingBox().inflate(SNEEZE_RANGE),
+                entity -> entity != this && entity.getVehicle() != this && entity.isAlive() && !entity.isSpectator())) {
+            Vec3 way = entity.position().subtract(position()).multiply(1.0, 0.0, 1.0);
+            double distance = way.length();
+            if (distance > SNEEZE_RANGE || distance > 1.0E-3 && way.scale(1.0 / distance).dot(forward) < cone) {
+                continue;
+            }
+            entity.knockback(SNEEZE_PUSH, getX() - entity.getX(), getZ() - entity.getZ(), damageSources().mobAttack(this), 0.0F);
+        }
+        say("golova_sneeze");
+    }
+
+    /**
+     * Hit by a player, the Head rolls off — «голова покатилась» — and wakes up. The first time, where
+     * it lay there is a sword: the Меч-кладенец, wooden but his own.
+     */
+    private void headRollsOff(ServerLevel level, Player player) {
+        boolean sword = !kladenetsGiven;
+        if (sword) {
+            kladenetsGiven = true;
+            ItemStack kladenets = new ItemStack(Items.WOODEN_SWORD);
+            kladenets.set(DataComponents.ITEM_NAME, Component.translatable("item.kolobok.kladenets"));
+            kladenets.set(DataComponents.LORE, new ItemLore(List.of(Component.translatable("item.kolobok.kladenets.lore"))));
+            kladenets.set(DataComponents.RARITY, Rarity.UNCOMMON);
+            spawnAtLocation(level, kladenets);
+        }
+        endHeadAct(sword ? "golova_kladenets" : "golova_hit");
+        Vec3 away = position().subtract(player.position()).multiply(1.0, 0.0, 1.0);
+        if (away.lengthSqr() < 1.0E-4) {
+            away = Vec3.directionFromRotation(0.0F, player.getYRot());
+        }
+        away = away.normalize().scale(HEAD_ROLL_SPEED);
+        setDeltaMovement(away.x, 0.35, away.z);
+        needsSync = true;
+    }
+
+    /**
+     * @return whether the Head has given away its sword
+     */
+    public boolean gaveKladenets() {
+        return kladenetsGiven;
+    }
+
+    // ------------------------------------------------------------------------------------ escapades
+
+    /**
+     * @return whether he may be on an escapade now: tamed, following or wandering, whole enough, not
+     *         on his way to a stove; following, with his owner near enough
+     */
+    private boolean mayEscape() {
+        KState state = getKState();
+        if (!isTame() || !KConfig.server().escapades || !(state == KState.FOLLOW || state == KState.WANDER)
+                || goingToStove || hop != null || isPassenger() || getHealth() < getMaxHealth() / 2.0F) {
+            return false;
+        }
+        if (state == KState.WANDER) {
+            return true;
+        }
+        return getOwner() instanceof Player owner && owner.level() == level() && !owner.isSpectator()
+                && distanceToSqr(owner) <= ESCAPADE_LEASH * ESCAPADE_LEASH;
+    }
+
+    /**
+     * @return the animal to sing to: of the peaceful ones and villagers he can see, the one with the
+     *         biggest herd round it, within the area his owner keeps alive; {@code null} if none
+     */
+    private @Nullable Mob findAudience(ServerLevel level) {
+        Player owner = getKState() == KState.FOLLOW && getOwner() instanceof Player player ? player : null;
+        double ownerRange = Math.max(1, level.getServer().getPlayerList().getSimulationDistance() - 1) * 16.0;
+        List<Mob> seen = level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(ESCAPADE_RANGE, 8.0, ESCAPADE_RANGE),
+                mob -> isAudience(mob) && !fears(mob) && distanceToSqr(mob) <= ESCAPADE_RANGE * ESCAPADE_RANGE
+                        && (owner == null || mob.position().multiply(1.0, 0.0, 1.0)
+                        .distanceToSqr(owner.position().multiply(1.0, 0.0, 1.0)) <= ownerRange * ownerRange));
+        Mob best = null;
+        int bestHerd = 0;
+        int looked = 0;
+        Collections.shuffle(seen, new Random(random.nextLong()));
+        for (Mob mob : seen) {
+            if (looked++ >= 8) {
+                break;
+            }
+            int herd = 0;
+            for (Mob other : seen) {
+                if (other.distanceToSqr(mob) <= HERD_RANGE * HERD_RANGE) {
+                    herd++;
+                }
+            }
+            if (herd > bestHerd && hasLineOfSight(mob)) {
+                best = mob;
+                bestHerd = herd;
+            }
+        }
+        return best;
+    }
+
+    private void endEscapade() {
+        if (escapade == Escapade.NONE) {
+            return;
+        }
+        escapade = Escapade.NONE;
+        escapadeAudience = null;
+        nextEscapade = tickCount + ESCAPADE_GAP + random.nextInt(ESCAPADE_CHECK);
+        getNavigation().stop();
+    }
+
+    /**
+     * Has him think about running off at the next chance, and go if he can; for tests.
+     */
+    public void escapeNow() {
+        nextEscapade = 0;
+        forceEscapade = true;
+    }
+
+    /**
+     * @return where his escapade has got to, for tests: none, going, lingering or coming back
+     */
+    public String escapadePhase() {
+        return escapade.name().toLowerCase(Locale.ROOT);
     }
 
     // ------------------------------------------------------------------------------------ damage
@@ -2204,6 +2735,14 @@ public class KolobokEntity extends TamableAnimal {
         if (!bypass && (isSheltered() || wardedOff(source))) {
             return false;
         }
+        if (getKState() == KState.HEAD_ACT && !bypass) {
+            if (source.getEntity() instanceof Player player) {
+                headRollsOff(level, player);
+                return false;
+            }
+            // A mob's bite wakes the Head; the bite itself is real.
+            endHeadAct("golova_end");
+        }
         boolean hurt = super.hurtServer(level, source, damage);
         if (!hurt || isSheltered() || !isAlive()) {
             return hurt;
@@ -2223,10 +2762,10 @@ public class KolobokEntity extends TamableAnimal {
 
     /**
      * Voice = dough × outfit × mood, clamped to 0.67–1.33 so the one-octave melody stays inside the
-     * game's 0.5–2.0 pitch range. Outfits arrive in v0.5.
+     * game's 0.5–2.0 pitch range.
      */
     public float voice() {
-        return Mth.clamp(getVariant().voice() * getMood().voice(), 0.67F, 1.33F);
+        return Outfit.pitch(getVariant(), Outfit.voice(getItemBySlot(EquipmentSlot.HEAD)), getMood());
     }
 
     @Override
@@ -2433,6 +2972,11 @@ public class KolobokEntity extends TamableAnimal {
 
         @Override
         public void tick() {
+            // Climbed in, he froze with this goal still running; the odd ticks that tick only such
+            // goals come back before the check that would stop it.
+            if (stove == null) {
+                return;
+            }
             giveUp--;
             Vec3 front = Vec3.atBottomCenterOf(StovePattern.front(stove.getBlockPos(), stove.facing()));
             if (walkOnto(front, 1.0)) {
@@ -2556,6 +3100,10 @@ public class KolobokEntity extends TamableAnimal {
 
         @Override
         public void tick() {
+            // As with the горнило: on the stove he froze with this goal still running.
+            if (stove == null) {
+                return;
+            }
             Vec3 target = Vec3.atBottomCenterOf(launch);
             if (walkOnto(target, 1.1)) {
                 climbOntoStove(stove, place);
@@ -2579,6 +3127,189 @@ public class KolobokEntity extends TamableAnimal {
                 // Run off, his place taken or the stove cold, he looks again soon; stuck, not for a while.
                 nextStoveTrip = Math.max(nextStoveTrip, tickCount + (stuck >= STOVE_STUCK_TICKS ? STOVE_TRIP_GAP : STOVE_RETRY));
                 getNavigation().stop();
+            }
+        }
+    }
+
+    /** Where an escapade has got to. */
+    private enum Escapade {
+        NONE,
+        /** Rolling off to the animals, or to a spot to look about. */
+        GOING,
+        /** Sung to them, or got there: hanging about a while. */
+        LINGERING,
+        /** Following: rolling back to his owner. */
+        RETURNING
+    }
+
+    /**
+     * Escapades: «Я от бабушки ушёл». Following or wandering, a tamed Kolobok now and then runs off.
+     * Animals he can see are an audience: he rolls up to the biggest herd, sings them his song, which
+     * gathers them round, hangs about a while and, if he follows someone, rolls back. With nobody to
+     * sing to he sometimes just rolls off a little way to look about. A far trip is walked a path at a
+     * time, as to a stove; one he gets no nearer on he gives up.
+     *
+     * <p>The song takes over from this goal while it lasts, so where the escapade has got to is kept
+     * on the entity, and the goal picks it up again afterwards.
+     */
+    private final class EscapadeGoal extends Goal {
+
+        private double nearest;
+        private int stuck;
+        private int nextRoam;
+
+        EscapadeGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.JUMP));
+        }
+
+        @Override
+        public boolean canUse() {
+            if (escapade != Escapade.NONE) {
+                if (mayEscape()) {
+                    return true;
+                }
+                endEscapade();
+                return false;
+            }
+            if (tickCount < nextEscapade || !mayEscape() || !onGround() || isSinging() || isInWater()
+                    || !(level() instanceof ServerLevel level)) {
+                return false;
+            }
+            nextEscapade = tickCount + ESCAPADE_CHECK + random.nextInt(ESCAPADE_CHECK);
+            boolean forced = forceEscapade;
+            forceEscapade = false;
+            Mob audience = findAudience(level);
+            if (audience != null && (forced || random.nextInt(ESCAPADE_CHANCE) == 0)) {
+                escapadeAudience = audience;
+                escapadeSpot = audience.position();
+                escapade = Escapade.GOING;
+                say("escapade");
+                return true;
+            }
+            if (audience == null && (forced || random.nextInt(ESCAPADE_ALONE_CHANCE) == 0)) {
+                Vec3 spot = LandRandomPos.getPos(KolobokEntity.this, ESCAPADE_ALONE_RANGE, 7);
+                if (spot != null && spot.distanceToSqr(position()) >= (ESCAPADE_ALONE_RANGE / 2.0) * (ESCAPADE_ALONE_RANGE / 2.0)) {
+                    escapadeAudience = null;
+                    escapadeSpot = spot;
+                    escapade = Escapade.GOING;
+                    say("escapade_alone");
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public void start() {
+            nearest = Double.MAX_VALUE;
+            stuck = 0;
+            nextRoam = 0;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return escapade != Escapade.NONE && mayEscape() && stuck < ESCAPADE_STUCK_TICKS;
+        }
+
+        @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
+        }
+
+        @Override
+        public void tick() {
+            switch (escapade) {
+                case GOING -> going();
+                case LINGERING -> lingering();
+                case RETURNING -> returning();
+                default -> {
+                }
+            }
+        }
+
+        /** Rolls to the animals, following them if they wander, and sings once he is there. */
+        private void going() {
+            Mob audience = escapadeAudience;
+            if (audience != null) {
+                if (!audience.isAlive() || audience.isRemoved()) {
+                    // The audience is gone: he looks about where it was.
+                    escapadeAudience = null;
+                } else {
+                    escapadeSpot = audience.position();
+                }
+            }
+            double arrive = audience != null ? CONCERT_ARRIVE : 1.5;
+            if (distanceToSqr(escapadeSpot) <= arrive * arrive) {
+                getNavigation().stop();
+                escapade = Escapade.LINGERING;
+                escapadeSpot = position();
+                escapadeTicks = LINGER_MIN + random.nextInt(LINGER_SPREAD);
+                if (audience != null && level() instanceof ServerLevel level && hasAudience(level)) {
+                    startSong(0);
+                    // The concert was his song for now.
+                    nextSong = Math.max(nextSong, SONG_GAP_MIN);
+                }
+                return;
+            }
+            walkTowards(escapadeSpot, 1.2);
+        }
+
+        /** Hangs about where he sang, rolling from place to place, then sets off back. */
+        private void lingering() {
+            if (--escapadeTicks <= 0) {
+                if (getKState() == KState.FOLLOW) {
+                    escapade = Escapade.RETURNING;
+                    nearest = Double.MAX_VALUE;
+                    stuck = 0;
+                    say("escapade_back");
+                } else {
+                    endEscapade();
+                }
+                return;
+            }
+            if (tickCount >= nextRoam && getNavigation().isDone()) {
+                nextRoam = tickCount + 60 + random.nextInt(80);
+                Vec3 roam = DefaultRandomPos.getPosTowards(KolobokEntity.this, LINGER_ROAM, 3, escapadeSpot, Math.PI / 2.0);
+                if (roam != null) {
+                    getNavigation().moveTo(roam.x, roam.y, roam.z, 0.8);
+                }
+            }
+        }
+
+        /** Rolls back until his owner is close; one he cannot get to fetches him the vanilla way. */
+        private void returning() {
+            if (!(getOwner() instanceof Player owner)) {
+                endEscapade();
+                return;
+            }
+            if (distanceToSqr(owner) <= ESCAPADE_HOME * ESCAPADE_HOME) {
+                endEscapade();
+                say("escapade_home");
+                return;
+            }
+            walkTowards(owner.position(), 1.1);
+        }
+
+        /** A path at a time towards it; no nearer for ten seconds and he gives up. */
+        private void walkTowards(Vec3 target, double speed) {
+            if (getNavigation().isDone() || tickCount % 20 == 0) {
+                pathTo(target, speed);
+            }
+            double distance = position().distanceTo(target);
+            if (distance < nearest - 0.25) {
+                nearest = distance;
+                stuck = 0;
+            } else {
+                stuck++;
+            }
+        }
+
+        @Override
+        public void stop() {
+            getNavigation().stop();
+            // Given up, or the owner called him off; a song only pauses the escapade.
+            if (stuck >= ESCAPADE_STUCK_TICKS || !mayEscape()) {
+                endEscapade();
             }
         }
     }

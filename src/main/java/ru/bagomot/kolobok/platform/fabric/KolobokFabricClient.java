@@ -9,6 +9,7 @@ import net.minecraft.client.renderer.entity.EntityRenderers;
 import ru.bagomot.kolobok.client.KolobokClient;
 import ru.bagomot.kolobok.client.KolobokModel;
 import ru.bagomot.kolobok.client.KolobokRenderer;
+import ru.bagomot.kolobok.client.OutfitModels;
 import ru.bagomot.kolobok.client.SongPlayer;
 import ru.bagomot.kolobok.client.StoveRenderer;
 import ru.bagomot.kolobok.registry.KBlockEntities;
@@ -20,6 +21,7 @@ public final class KolobokFabricClient implements ClientModInitializer {
     public void onInitializeClient() {
         KolobokClient.init(FabricLoader.getInstance().getConfigDir());
         ModelLayerRegistry.registerModelLayer(KolobokModel.LAYER, KolobokModel::createBodyLayer);
+        OutfitModels.LAYERS.forEach((layer, definition) -> ModelLayerRegistry.registerModelLayer(layer, definition::get));
         // Both public through Fabric's transitive access wideners; the old Fabric registries for these
         // are deprecated in favour of them.
         EntityRenderers.register(KEntities.KOLOBOK.get(), KolobokRenderer::new);

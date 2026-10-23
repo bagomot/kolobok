@@ -31,6 +31,11 @@ public final class KSounds {
         }
     }
 
+    /** The Head from «Руслан и Людмила» asleep: a soft hum in and out, no rasp. */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> SNORE = event("snore");
+    /** The Head tickled: «а-а-апчхи», sung like everything else he says. */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> SNEEZE = event("sneeze");
+
     private KSounds() {
     }
 

@@ -1,4 +1,5 @@
-// Renders Kolobok's 49 syllable samples to Ogg Vorbis and writes assets/kolobok/sounds.json.
+// Renders Kolobok's 49 syllable samples, and the Head's snore and sneeze, to Ogg Vorbis and writes
+// assets/kolobok/sounds.json.
 //
 //   cd tools/voice && npm install && npm run render
 //
@@ -135,6 +136,64 @@ function render({ on, v }) {
   return out;
 }
 
+// One sung tone for the Head's sounds: a vowel out of a consonant, as in render(), but at any pitch,
+// gliding from f0 to f1, with its own length, swell and fade. Still a clean harmonic tone.
+function tone({ on = "", v, f0, f1 = f0, len, gain = 1, attack = 0.03, release = 0.1 }) {
+  const n = Math.round(len * SR);
+  const out = new Float32Array(n);
+  const mid = (f0 + f1) / 2;
+  const vowel = harmonics(mid, FORM[v], [1, 0.6, 0.25]);
+  const cons = CONS_F[on] ? harmonics(mid, CONS_F[on], CONS_G[on] || [1, 0.45, 0.18]) : null;
+  const [, x0, xl] = CONS_T[on] || [0, 0, 0];
+  let phase = 0;
+  for (let i = 0; i < n; i++) {
+    const t = i / SR;
+    const env = Math.min(1, t / attack) * Math.min(1, (len - t) / release);
+    const f = f0 * Math.pow(f1 / f0, t / len);
+    phase += (2 * Math.PI * f) / SR;
+    let s;
+    if (cons) {
+      const gv = t < x0 ? 0 : t < x0 + xl ? (t - x0) / xl : 1;
+      s = gv * wave(vowel, phase) + (1 - gv) * wave(cons, phase);
+    } else {
+      s = wave(vowel, phase);
+    }
+    out[i] = gain * Math.max(0, env) * s;
+  }
+  return out;
+}
+
+// Lays tones one after another, with a pause before each where asked.
+function phrase(parts) {
+  const chunks = [];
+  for (const p of parts) {
+    if (p.pause) chunks.push(new Float32Array(Math.round(p.pause * SR)));
+    chunks.push(tone(p));
+  }
+  const total = chunks.reduce((a, c) => a + c.length, 0);
+  const out = new Float32Array(total);
+  let at = 0;
+  for (const c of chunks) { out.set(c, at); at += c.length; }
+  let peak = 0;
+  for (const x of out) peak = Math.max(peak, Math.abs(x));
+  for (let i = 0; i < total; i++) out[i] *= PEAK / peak;
+  return out;
+}
+
+// The Head's snore: a low hum in on «о», rising, and out on «у», falling. Nothing rasps.
+const SNORE = phrase([
+  { v: "о", f0: F0 * 0.5, f1: F0 * 0.56, len: 0.9, gain: 0.8, attack: 0.35, release: 0.3 },
+  { v: "у", f0: F0 * 0.6, f1: F0 * 0.45, len: 0.75, gain: 0.55, attack: 0.1, release: 0.4, pause: 0.15 },
+]);
+
+// The Head's sneeze, «а-а-апчхи»: three «а» climbing, a catch, then a bright short «ши».
+const SNEEZE = phrase([
+  { v: "а", f0: F0, f1: F0 * 1.05, len: 0.2, gain: 0.55, attack: 0.04, release: 0.06 },
+  { v: "а", f0: F0 * 1.12, f1: F0 * 1.18, len: 0.2, gain: 0.65, attack: 0.04, release: 0.06, pause: 0.04 },
+  { v: "а", f0: F0 * 1.26, f1: F0 * 1.4, len: 0.3, gain: 0.75, attack: 0.04, release: 0.05, pause: 0.04 },
+  { on: "ш", v: "и", f0: F0 * 1.7, f1: F0 * 1.5, len: 0.24, gain: 1, attack: 0.008, release: 0.16, pause: 0.09 },
+]);
+
 async function encode(pcm) {
   const encoder = await createOggEncoder();
   encoder.configure({ channels: 1, sampleRate: SR, vbrQuality: 5 });
@@ -155,5 +214,9 @@ for (const syl of SYLLABLES) {
 for (const syl of SYLLABLES) {
   sounds["mumble." + syl.name] = { subtitle: "subtitles.kolobok.mumble", sounds: ["kolobok:voice/" + syl.name] };
 }
+writeFileSync(join(OUT, "snore.ogg"), await encode(SNORE));
+writeFileSync(join(OUT, "sneeze.ogg"), await encode(SNEEZE));
+sounds["snore"] = { subtitle: "subtitles.kolobok.snore", sounds: ["kolobok:voice/snore"] };
+sounds["sneeze"] = { subtitle: "subtitles.kolobok.sneeze", sounds: ["kolobok:voice/sneeze"] };
 writeFileSync(join(ASSETS, "sounds.json"), JSON.stringify(sounds, null, 2) + "\n");
-console.log(`Rendered ${SYLLABLES.length} syllables to ${OUT}`);
+console.log(`Rendered ${SYLLABLES.length} syllables, the snore and the sneeze to ${OUT}`);

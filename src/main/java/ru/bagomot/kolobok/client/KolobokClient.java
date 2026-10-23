@@ -6,6 +6,7 @@ import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.EquipmentSlot;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -29,6 +30,9 @@ public final class KolobokClient {
     /** Mumbling never runs longer than this many syllables. */
     private static final int MUMBLE_MAX = 8;
     private static final int MUMBLE_STEP_TICKS = 2;
+    /** The Head is this much bigger than he is, and gets there in twenty ticks. */
+    private static final float HEAD_SCALE = 1.75F;
+    private static final float HEAD_GROWTH = (HEAD_SCALE - 1.0F) / 20.0F;
     /** Categories that are chatter rather than an answer; the chattiness setting thins them out. */
     private static final List<String> CHATTER = List.of("idle", "night");
 
@@ -42,6 +46,7 @@ public final class KolobokClient {
 
     private static void tick(KolobokEntity entity) {
         roll(entity);
+        growHead(entity);
         blink(entity);
         speech(entity);
         mumble(entity);
@@ -77,8 +82,9 @@ public final class KolobokClient {
         double dx = entity.getX() - entity.xo;
         double dz = entity.getZ() - entity.zo;
         float distance = (float) Math.sqrt(dx * dx + dz * dz);
+        // In лапти he walks instead.
         boolean rolling = distance > STILL && entity.onGround() && entity.getKState() != KState.ON_PLAYER
-                && !entity.isInSittingPose();
+                && !entity.isInSittingPose() && entity.getItemBySlot(EquipmentSlot.FEET).isEmpty();
         if (rolling) {
             entity.clientRollSpeed = distance / KolobokModel.RADIUS;
         } else {
@@ -92,6 +98,15 @@ public final class KolobokClient {
             entity.clientRoll -= turns;
             entity.clientRollO -= turns;
         }
+    }
+
+    /**
+     * The Head grows over a second as he falls asleep in it, and shrinks back as he wakes.
+     */
+    private static void growHead(KolobokEntity entity) {
+        entity.clientHeadScaleO = entity.clientHeadScale;
+        float target = entity.isHead() ? HEAD_SCALE : 1.0F;
+        entity.clientHeadScale += Mth.clamp(target - entity.clientHeadScale, -HEAD_GROWTH, HEAD_GROWTH);
     }
 
     private static void blink(KolobokEntity entity) {

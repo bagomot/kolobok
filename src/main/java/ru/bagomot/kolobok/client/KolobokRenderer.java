@@ -8,12 +8,16 @@ import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.client.renderer.entity.MobRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import ru.bagomot.kolobok.Kolobok;
@@ -22,6 +26,7 @@ import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Mood;
+import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Perk;
 import ru.bagomot.kolobok.entity.RideSlot;
 import ru.bagomot.kolobok.entity.Variant;
@@ -60,6 +65,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
+        addLayer(new KolobokOutfitLayer(this, context.getModelSet()));
     }
 
     @Override
@@ -89,6 +95,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
             }
         }
 
+        extractOutfit(entity, state, partialTicks);
         state.burnt = entity.hasFlag(KolobokEntity.FLAG_BURNT);
         state.golden = entity.hasPerk(Perk.ENDER_DRAGON);
         state.stale = entity.hasFlag(KolobokEntity.FLAG_STALE);
@@ -103,6 +110,40 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
             }
             state.bubbleWidth = width;
         }
+    }
+
+    /**
+     * What he wears, and how big the Head has grown. Without the лапти he rolls; in them he walks, and
+     * the Head has none.
+     */
+    private static void extractOutfit(KolobokEntity entity, KolobokRenderState state, float partialTicks) {
+        ItemStack head = entity.getItemBySlot(EquipmentSlot.HEAD);
+        Outfit.Hat hat = Outfit.hat(head);
+        state.hat = hat == null ? Outfit.Hat.NONE : hat;
+        state.helmetTexture = null;
+        state.aventail = false;
+        state.hatColour = -1;
+        if (state.hat == Outfit.Hat.HELMET) {
+            Outfit.Material material = Outfit.material(head);
+            state.helmetTexture = OutfitModels.helmetTexture(material);
+            state.aventail = material == Outfit.Material.CHAINMAIL;
+        } else if (state.hat == Outfit.Hat.USHANKA) {
+            state.hatColour = DyedItemColor.getOrDefault(head, Outfit.LEATHER_COLOUR);
+        }
+        state.headScale = Mth.lerp(partialTicks, entity.clientHeadScaleO, entity.clientHeadScale);
+        ItemStack feet = entity.getItemBySlot(EquipmentSlot.FEET);
+        state.lapti = null;
+        state.laptiColour = -1;
+        if (!feet.isEmpty() && state.headScale <= 1.0F) {
+            Outfit.Material material = Outfit.material(feet);
+            if (material == Outfit.Material.LEATHER && feet.has(DataComponents.DYED_COLOR)) {
+                state.lapti = OutfitModels.LAPTI_DYED_TEXTURE;
+                state.laptiColour = DyedItemColor.getOrDefault(feet, Outfit.LEATHER_COLOUR);
+            } else {
+                state.lapti = OutfitModels.laptiTexture(material);
+            }
+        }
+        state.glasses = entity.hasFlag(KolobokEntity.FLAG_GLASSES);
     }
 
     /**
@@ -186,8 +227,9 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
 
     @Override
     protected void scale(KolobokRenderState state, PoseStack poseStack) {
-        if (state.variant == Variant.MINI) {
-            poseStack.scale(MINI_SCALE, MINI_SCALE, MINI_SCALE);
+        float scale = (state.variant == Variant.MINI ? MINI_SCALE : 1.0F) * state.headScale;
+        if (scale != 1.0F) {
+            poseStack.scale(scale, scale, scale);
         }
     }
 
@@ -196,7 +238,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         if (state.onPlayer) {
             return 0.0F;
         }
-        float radius = super.getShadowRadius(state);
+        float radius = super.getShadowRadius(state) * state.headScale;
         return state.variant == Variant.MINI ? radius * MINI_SCALE : radius;
     }
 
@@ -218,7 +260,8 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
      */
     private static void submitBubble(KolobokRenderState state, PoseStack poseStack, SubmitNodeCollector collector,
                                      CameraRenderState camera) {
-        float above = state.boundingBoxHeight + 0.45F + (state.nameTag != null ? 0.3F : 0.0F);
+        // The Head is taller than his box.
+        float above = state.boundingBoxHeight * state.headScale + 0.45F + (state.nameTag != null ? 0.3F : 0.0F);
         int width = state.bubbleWidth;
         int height = state.bubble.size() * LINE_HEIGHT - 1;
         int light = LightCoordsUtil.FULL_BRIGHT;

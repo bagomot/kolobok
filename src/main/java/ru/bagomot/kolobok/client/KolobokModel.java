@@ -8,6 +8,7 @@ import net.minecraft.client.model.geom.builders.CubeListBuilder;
 import net.minecraft.client.model.geom.builders.LayerDefinition;
 import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
+import net.minecraft.util.Mth;
 import ru.bagomot.kolobok.Kolobok;
 
 /**
@@ -66,15 +67,29 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
                             .addBox(-3.0F, -3.0F, -5.05F, 6.0F, 6.0F, 0.0F),
                     PartPose.ZERO);
         }
-        // Outfits hang off this anchor in v0.5; it sits on top of the ball and never rolls.
+        // Hats hang off this anchor; it sits on top of the ball and never rolls.
         root.addOrReplaceChild("hat", CubeListBuilder.create(), PartPose.offset(0.0F, CENTRE_Y - 5.0F, 0.0F));
         return LayerDefinition.create(mesh, 64, 64);
+    }
+
+    public ModelPart body() {
+        return body;
+    }
+
+    /** The anchor hats sit on: the top of the ball, which never rolls. */
+    public ModelPart hat() {
+        return hat;
     }
 
     @Override
     public void setupAnim(KolobokRenderState state) {
         super.setupAnim(state);
         body.xRot = state.roll;
+        if (state.lapti != null) {
+            // Up on his лапти, bobbing a little with each step.
+            float speed = Math.min(1.0F, state.walkAnimationSpeed);
+            body.y -= OutfitModels.LAPTI_LIFT + Math.abs(Mth.sin(state.walkAnimationPos * 0.6662F)) * 0.5F * speed;
+        }
         if (state.sitting) {
             // A little squashed when he sits, bottom kept on the ground.
             body.yScale = 0.9F;
