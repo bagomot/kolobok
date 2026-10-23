@@ -6,11 +6,14 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.EquipmentSlotGroup;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ToolMaterial;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
@@ -18,21 +21,26 @@ import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.HitResult;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.block.StovePattern;
+import ru.bagomot.kolobok.entity.KolobokEntity;
 
 /**
  * Бабушкина скалка, the remote control for everything. Hits like a wooden sword, but knocks back.
  *
  * <p>Shift and right-click on a furnace builds the Russian stove around it; at the crafting table it
  * rolls dough into a raw Kolobok and stays in the grid. Right-click on one's own
- * Kolobok switches his mode; that click is handled by Kolobok himself.
+ * Kolobok switches his mode; that click is handled by Kolobok himself. Right-click anywhere else
+ * bowls one's own Kolobok at whatever the player points at: «Катись!»
  */
 public class RollingPinItem extends Item {
 
     private static final float DAMAGE = 3.0F;
     private static final float SPEED = -2.4F;
+    /** Half a second between two bowls. */
+    private static final int BOWL_COOLDOWN = 10;
 
     public RollingPinItem(Item.Properties properties) {
         super(properties);
@@ -53,6 +61,25 @@ public class RollingPinItem extends Item {
                         .add(Attributes.ATTACK_KNOCKBACK, new AttributeModifier(Kolobok.id("rolling_pin_knockback"), 1.0,
                                 AttributeModifier.Operation.ADD_VALUE), EquipmentSlotGroup.MAINHAND)
                         .build());
+    }
+
+    /**
+     * «Катись!»: the nearest of the player's own Kolobki, on him or close by, rolls at what the player
+     * points at, up to 24 blocks off. With none about, the pin does nothing.
+     */
+    @Override
+    public InteractionResult use(Level level, Player player, InteractionHand hand) {
+        KolobokEntity kolobok = KolobokEntity.bowlerFor(player);
+        if (kolobok == null) {
+            return InteractionResult.PASS;
+        }
+        if (level instanceof ServerLevel) {
+            HitResult hit = ProjectileUtil.getHitResultOnViewVector(player, entity -> entity instanceof LivingEntity
+                    && entity != kolobok && !entity.isSpectator() && entity.isPickable(), KolobokEntity.BOWL_RANGE);
+            kolobok.bowl(hit.getLocation());
+            player.getCooldowns().addCooldown(player.getItemInHand(hand), BOWL_COOLDOWN);
+        }
+        return InteractionResult.SUCCESS;
     }
 
     /**

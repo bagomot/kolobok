@@ -141,6 +141,9 @@ public final class GenTextures {
             new Box(-3, -3, -5, 6, 6, 10, 0, 28),
     };
 
+    /** A cheek, puffed out with what he carries; both cheeks share it. Not part of the ball, so not bitten. */
+    static final Box CHEEK = new Box(-1, 0, -5, 3, 3, 3, 0, 44);
+
     public static void main(String[] args) throws IOException {
         File root = new File(args.length > 0 ? args[0] : "src/main/resources/assets/kolobok/textures");
         File entityDir = new File(root, "entity/kolobok");
@@ -151,13 +154,16 @@ public final class GenTextures {
             ImageIO.write(atlas(dough), "png", new File(entityDir, dough.name() + ".png"));
         }
         ImageIO.write(atlas(RAW), "png", new File(entityDir, RAW.name() + ".png"));
+        ImageIO.write(biteOverlay(), "png", new File(entityDir, "bitten.png"));
         ImageIO.write(doughLump(), "png", new File(itemDir, "dough.png"));
         ImageIO.write(rawKolobok(), "png", new File(itemDir, "raw_kolobok.png"));
         ImageIO.write(spawnEgg(DOUGHS[0]), "png", new File(itemDir, "kolobok_spawn_egg.png"));
         ImageIO.write(rollingPin(), "png", new File(itemDir, "rolling_pin.png"));
         ImageIO.write(songbook(), "png", new File(itemDir, "songbook.png"));
+        ImageIO.write(bindle(false), "png", new File(itemDir, "bindle.png"));
+        ImageIO.write(bindle(true), "png", new File(itemDir, "bindle_full.png"));
         System.out.println("Wrote " + DOUGHS.length + " atlases, the raw dough, the spawn egg, the rolling pin, the songbook,"
-                + " the dough and the raw Kolobok to " + root);
+                + " the bindle, the dough and the raw Kolobok to " + root);
     }
 
     /**
@@ -313,6 +319,70 @@ public final class GenTextures {
         return img;
     }
 
+    /**
+     * Узелок: a red kerchief with white dots knotted to the end of a stick carried over the shoulder.
+     * Full, the bundle is round and Kolobok peeks out of it; empty, it hangs limp.
+     */
+    static BufferedImage bindle(boolean full) {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        int[][] colour = new int[16][16];
+        // The stick, from the lower left to the knot at the upper right, two texels thick.
+        for (int i = 0; i <= 11; i++) {
+            int x = 1 + i, y = 14 - i;
+            colour[y][x] = 0xFFC08A52;
+            colour[y + 1][x] = 0xFF9C6B3A;
+        }
+        // The bundle hangs under the knot.
+        double cx = full ? 10.6 : 11.6, cy = full ? 9.2 : 8.2, rx = full ? 4.4 : 2.5, ry = full ? 4.0 : 3.4;
+        int cloth = 0xC23A2C, dot = 0xFFF3E6CC;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                double dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+                if (dx * dx + dy * dy > 1.0) {
+                    continue;
+                }
+                float lit = (float) (-(dx + dy) * 0.5);
+                int c = 0xFF000000 | (lit > 0.3F ? shade(cloth, 1.16F) : lit < -0.3F ? shade(cloth, 0.76F) : cloth);
+                if (Math.floorMod(x + (y / 2) * 2, 4) == 0 && y % 2 == 1) {
+                    c = dot;
+                }
+                colour[y][x] = c;
+            }
+        }
+        // The neck of the bundle, gathered under the knot, and the knot's two ears around the stick.
+        int knot = 0xFF000000 | shade(cloth, 0.86F);
+        int neckY = (int) Math.floor(cy - ry);
+        colour[neckY][12] = knot;
+        colour[neckY - 1][12] = knot;
+        colour[neckY - 1][11] = knot;
+        colour[neckY - 2][10] = knot;
+        colour[neckY - 2][14] = knot;
+        colour[neckY - 1][13] = knot;
+        if (full) {
+            // Kolobok peeks out where the kerchief parts: a bun with two eyes and a smile.
+            int bun = 0xFFE9B44C, bunLit = 0xFFF6D07A, eye = 0xFF3A2410;
+            for (int y = 8; y <= 10; y++) {
+                for (int x = 9; x <= 12; x++) {
+                    colour[y][x] = y == 8 || x == 9 ? bunLit : bun;
+                }
+            }
+            colour[8][10] = eye;
+            colour[8][12] = eye;
+            colour[10][11] = 0xFF8A3A1E;
+        }
+        int outline = 0xFF3B1A10;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                if (colour[y][x] != 0) {
+                    img.setRGB(x, y, colour[y][x]);
+                } else if (touches(colour, x, y)) {
+                    img.setRGB(x, y, outline);
+                }
+            }
+        }
+        return img;
+    }
+
     static boolean touches(int[][] colour, int x, int y) {
         int[][] around = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
         for (int[] d : around) {
@@ -333,6 +403,10 @@ public final class GenTextures {
         for (int i = 0; i < FACES.length; i++) {
             paintFace(img, 32 + 12 * (i % 2), 16 + 6 * (i / 2), FACES[i]);
         }
+        // Crust all round, rosy in front, so a full cheek reads as a cheek and not a lump of dough.
+        paintBox(img, CHEEK, dough, random);
+        fill(img, CHEEK.u() + CHEEK.d(), CHEEK.v() + CHEEK.d(), CHEEK.w(), CHEEK.h(),
+                (px, py) -> mix(crust(dough, 0.0F, false, false, random), BLUSH, px == 1 && py == 1 ? 0.65F : 0.4F));
         return img;
     }
 
@@ -340,6 +414,37 @@ public final class GenTextures {
      * Paints the six faces of one box. Tops and bottoms take the colour of their height; sides take
      * the colour of each texel row's height.
      */
+    /**
+     * The bite a hungry owner takes, as an overlay on the atlas: transparent but for the tops of the
+     * boxes, where a round bite comes out of the edge of the ball — pale crumb inside, a darker rim of
+     * tooth marks around it.
+     */
+    static BufferedImage biteOverlay() {
+        BufferedImage img = new BufferedImage(64, 64, BufferedImage.TYPE_INT_ARGB);
+        int crumb = 0xFFF2DFB2, crumbShade = 0xFFE2C890, rim = 0xFF9A5A20;
+        // The bite: a circle in the top view, centred on the ball's edge.
+        double bx = 5.0, bz = 0.0, r = 3.6;
+        for (Box b : BOXES) {
+            // The top face: x across, z down the texture.
+            int u0 = b.u() + b.d(), v0 = b.v();
+            for (int j = 0; j < b.d(); j++) {
+                for (int i = 0; i < b.w(); i++) {
+                    double x = b.x() + i + 0.5, z = b.z() + j + 0.5;
+                    double dist = Math.hypot(x - bx, z - bz);
+                    if (dist > r) {
+                        continue;
+                    }
+                    // Tooth marks: the rim bulges in and out along the bite.
+                    double angle = Math.atan2(z - bz, x - bx);
+                    boolean tooth = Math.cos(angle * 6.0) > 0.3;
+                    int colour = dist > r - (tooth ? 1.2 : 0.7) ? rim : dist > r - 2.0 ? crumbShade : crumb;
+                    img.setRGB(u0 + i, v0 + j, colour);
+                }
+            }
+        }
+        return img;
+    }
+
     static void paintBox(BufferedImage img, Box b, Dough dough, Random random) {
         int u = b.u(), v = b.v(), w = b.w(), h = b.h(), d = b.d();
         float topUp = -b.y();

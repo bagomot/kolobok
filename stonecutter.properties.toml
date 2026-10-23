@@ -9,7 +9,7 @@
 mod.id = "kolobok"
 mod.name = "Kolobok"
 mod.group = "ru.bagomot.kolobok"
-mod.version = "0.5.0"
+mod.version = "0.6.0"
 mod.license = "MIT"
 mod.author = "Bagomot"
 mod.description = "Колобок из русской сказки: печётся в русской печи, ходит за хозяином, поёт и уходит от всех. A bread pet from the Russian fairy tale."

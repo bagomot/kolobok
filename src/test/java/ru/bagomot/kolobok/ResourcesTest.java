@@ -16,6 +16,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -131,6 +133,63 @@ class ResourcesTest {
                 assertTrue(en.has(key), "en_us lacks " + key);
             }
         }
+    }
+
+    /**
+     * Every line the code has him say needs a level-0 line in both languages, or he says nothing at
+     * all. The categories are read from the code itself: the arguments of {@code say}, and of the
+     * calls that pass a line on to it.
+     */
+    @Test
+    void everyLineTheCodeSaysHasTextInBothLanguages() throws IOException {
+        String code = source("entity/KolobokEntity.java") + source("event/KolobokEvents.java");
+        Set<String> said = new TreeSet<>();
+        Matcher call = Pattern.compile("(?:say|endHeadAct|getOffStove)\\(([^;]*?)\\);", Pattern.DOTALL).matcher(code);
+        while (call.find()) {
+            Matcher word = Pattern.compile("\"([a-z_]+)\"").matcher(call.group(1));
+            while (word.find()) {
+                // A prefix the code completes ("dress_" and the hat) is checked by the hats' own test.
+                if (!word.group(1).endsWith("_")) {
+                    said.add(word.group(1));
+                }
+            }
+        }
+        assertTrue(said.size() > 50, "found only " + said);
+        Map<String, Set<String>> ru = categories(json("assets/kolobok/lang/ru_ru.json"));
+        Map<String, Set<String>> en = categories(json("assets/kolobok/lang/en_us.json"));
+        for (String category : said) {
+            assertTrue(ru.containsKey(category) && ru.get(category).contains("0"), "no ru_ru line for " + category);
+            assertTrue(en.containsKey(category) && en.get(category).contains("0"), "no en_us line for " + category);
+        }
+    }
+
+    @Test
+    void theBindleHasItsModelsTexturesRecipeAndNames() throws IOException {
+        JsonObject definition = json("assets/kolobok/items/bindle.json");
+        assertEquals("kolobok:stored_kolobok", definition.getAsJsonObject("model").get("component").getAsString());
+        json("assets/kolobok/models/item/bindle.json");
+        json("assets/kolobok/models/item/bindle_full.json");
+        texture("item/bindle");
+        texture("item/bindle_full");
+        json("data/kolobok/recipe/bindle.json");
+        json("data/kolobok/advancement/recipes/misc/bindle.json");
+        for (String lang : List.of("ru_ru", "en_us")) {
+            JsonObject names = json("assets/kolobok/lang/" + lang + ".json");
+            for (Variant variant : Variant.values()) {
+                assertTrue(names.has("item.kolobok.bindle.dough." + variant.serializedName()), lang + " " + variant);
+            }
+            assertTrue(names.has("item.kolobok.bindle.verses"), lang);
+            assertTrue(names.has("item.kolobok.bindle.empty"), lang);
+        }
+    }
+
+    @Test
+    void theBiteAndTheChickenJockeyHaveTheirFiles() throws IOException {
+        texture("entity/kolobok/bitten");
+        JsonObject sounds = json("assets/kolobok/sounds.json");
+        String subtitle = sounds.getAsJsonObject("chicken_jockey").get("subtitle").getAsString();
+        assertTrue(json("assets/kolobok/lang/ru_ru.json").has(subtitle));
+        assertTrue(json("assets/kolobok/lang/en_us.json").has(subtitle));
     }
 
     @Test
@@ -277,6 +336,20 @@ class ResourcesTest {
             assertEquals(counts.get(level) - 1, maxIndex.get(level), "gap in line numbers of " + level);
         }
         return levels;
+    }
+
+    /**
+     * @return a source file of the mod, under {@code src/main/java/ru/bagomot/kolobok}, found from
+     *         whichever build node the tests run in
+     */
+    private static String source(String path) throws IOException {
+        for (Path dir = Path.of("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
+            Path file = dir.resolve("src/main/java/ru/bagomot/kolobok").resolve(path);
+            if (Files.exists(file)) {
+                return Files.readString(file);
+            }
+        }
+        throw new IOException("no " + path);
     }
 
     private static JsonObject json(String path) throws IOException {

@@ -35,6 +35,8 @@ public final class KSounds {
     public static final KRegistry.Entry<SoundEvent, SoundEvent> SNORE = event("snore");
     /** The Head tickled: «а-а-апчхи», sung like everything else he says. */
     public static final KRegistry.Entry<SoundEvent, SoundEvent> SNEEZE = event("sneeze");
+    /** Not his voice: a chicken's clucks, with his subtitle «ЧИКЕН-ЖОКЕЙ!». */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> CHICKEN_JOCKEY = event("chicken_jockey");
 
     private KSounds() {
     }

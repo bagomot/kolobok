@@ -10,7 +10,8 @@
             "ru.bagomot.kolobok.gametest.StoveVisualTest",
             "ru.bagomot.kolobok.gametest.VersesVisualTest",
             "ru.bagomot.kolobok.gametest.FoxVisualTest",
-            "ru.bagomot.kolobok.gametest.OutfitsVisualTest"
+            "ru.bagomot.kolobok.gametest.OutfitsVisualTest",
+            "ru.bagomot.kolobok.gametest.SkillsVisualTest"
         ]
     },
     "depends": {

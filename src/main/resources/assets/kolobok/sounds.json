@@ -598,5 +598,13 @@
     "sounds": [
       "kolobok:voice/sneeze"
     ]
+  },
+  "chicken_jockey": {
+    "subtitle": "subtitles.kolobok.chicken_jockey",
+    "sounds": [
+      "minecraft:mob/chicken/say1",
+      "minecraft:mob/chicken/say2",
+      "minecraft:mob/chicken/say3"
+    ]
   }
 }

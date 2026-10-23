@@ -19,6 +19,9 @@ import ru.bagomot.kolobok.Kolobok;
  * atlas; exactly one is visible. It is a child of {@code body}, so it rolls with him. {@code hat} is a
  * sibling of {@code body} rather than a child: the hat must not roll.
  *
+ * <p>Cheeks puff out at the lower corners of the face when he carries something in them, bigger the
+ * fuller they are; they take their crust from the core's sides.
+ *
  * <p>Texture layout, 64×64: core at (0,0), X bar at (0,16), Y bar at (32,0), Z bar at (0,28), faces
  * 12×6 each in two columns from (32,16). {@code tools/textures/GenTextures.java} draws it.
  */
@@ -34,10 +37,14 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
     public static final float RADIUS = 5.0F / 16.0F;
 
     private static final float CENTRE_Y = 24.0F - 5.0F;
+    /** How big a cheek is at each puff, 1–3. */
+    private static final float[] CHEEK_SCALE = {0.0F, 0.75F, 1.0F, 1.3F};
 
     private final ModelPart body;
     private final ModelPart hat;
     private final ModelPart[] faces = new ModelPart[FACES];
+    private final ModelPart cheekLeft;
+    private final ModelPart cheekRight;
 
     public KolobokModel(ModelPart root) {
         super(root);
@@ -46,6 +53,8 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
         for (int i = 0; i < FACES; i++) {
             faces[i] = body.getChild("face_" + i);
         }
+        cheekLeft = body.getChild("cheek_left");
+        cheekRight = body.getChild("cheek_right");
     }
 
     public static LayerDefinition createBodyLayer() {
@@ -66,6 +75,12 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
                             .texOffs(32 + 12 * (i % 2), 16 + 6 * (i / 2))
                             .addBox(-3.0F, -3.0F, -5.05F, 6.0F, 6.0F, 0.0F),
                     PartPose.ZERO);
+        }
+        for (int side = -1; side <= 1; side += 2) {
+            body.addOrReplaceChild(
+                    side < 0 ? "cheek_right" : "cheek_left",
+                    CubeListBuilder.create().texOffs(0, 44).addBox(-1.5F, -1.5F, -1.5F, 3.0F, 3.0F, 3.0F),
+                    PartPose.offset(side * 3.5F, 1.5F, -4.0F));
         }
         // Hats hang off this anchor; it sits on top of the ball and never rolls.
         root.addOrReplaceChild("hat", CubeListBuilder.create(), PartPose.offset(0.0F, CENTRE_Y - 5.0F, 0.0F));
@@ -97,8 +112,21 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
             body.zScale = 1.05F;
             body.y += 5.0F * (1.0F - body.yScale);
         }
+        if (state.dancing) {
+            // As a parrot at a jukebox: bobbing to the beat, swaying from side to side.
+            body.y -= Math.abs(Mth.sin(state.ageInTicks * 0.6F)) * 1.5F;
+            body.zRot = Mth.sin(state.ageInTicks * 0.3F) * 0.25F;
+            hat.zRot = body.zRot;
+        }
         for (int i = 0; i < FACES; i++) {
             faces[i].visible = i == state.face;
+        }
+        float cheek = CHEEK_SCALE[Math.clamp(state.cheeks, 0, 3)];
+        for (ModelPart part : new ModelPart[]{cheekLeft, cheekRight}) {
+            part.visible = cheek > 0.0F;
+            part.xScale = cheek;
+            part.yScale = cheek;
+            part.zScale = cheek;
         }
         hat.y = body.y - 5.0F * body.yScale;
     }

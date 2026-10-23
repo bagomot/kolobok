@@ -1,7 +1,9 @@
 package ru.bagomot.kolobok.platform.fabric;
 
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
+import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -25,6 +27,9 @@ public final class KolobokFabric implements ModInitializer {
         }
         FabricDefaultAttributeRegistry.register(KEntities.KOLOBOK.get(), KolobokEntity.createAttributes());
         ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> KolobokEvents.onEntityLoad(entity));
+        ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> KolobokEvents.allowDamage(entity, source));
+        PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) ->
+                KolobokEvents.onBlockBroken(level, player, pos, state));
     }
 
     private static <T> void registerAll(KRegistry<T> catalogue) {

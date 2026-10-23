@@ -1,11 +1,14 @@
 package ru.bagomot.kolobok.platform.neoforge;
 
+import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
+import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.level.BlockDropsEvent;
 import net.neoforged.neoforge.registries.RegisterEvent;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -28,6 +31,17 @@ public final class KolobokNeoForge {
         NeoForge.EVENT_BUS.addListener(EntityJoinLevelEvent.class, event -> {
             if (!event.getLevel().isClientSide()) {
                 KolobokEvents.onEntityLoad(event.getEntity());
+            }
+        });
+        // Picked by a player: the drops are about to fall, the block is gone or going.
+        NeoForge.EVENT_BUS.addListener(BlockDropsEvent.class, event -> {
+            if (event.getBreaker() instanceof Player player) {
+                KolobokEvents.onBlockBroken(event.getLevel(), player, event.getPos(), event.getState());
+            }
+        });
+        NeoForge.EVENT_BUS.addListener(LivingIncomingDamageEvent.class, event -> {
+            if (!event.getEntity().level().isClientSide() && !KolobokEvents.allowDamage(event.getEntity(), event.getSource())) {
+                event.setCanceled(true);
             }
         });
     }

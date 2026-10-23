@@ -1,12 +1,14 @@
 package ru.bagomot.kolobok.client;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.particle.Particle;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.level.block.Blocks;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -15,8 +17,11 @@ import ru.bagomot.kolobok.entity.song.Syllable;
 import ru.bagomot.kolobok.registry.KSounds;
 
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * Client side of Kolobok that is not rendering: rolling, blinking, choosing the line to say and
@@ -34,7 +39,15 @@ public final class KolobokClient {
     private static final float HEAD_SCALE = 1.75F;
     private static final float HEAD_GROWTH = (HEAD_SCALE - 1.0F) / 20.0F;
     /** Categories that are chatter rather than an answer; the chattiness setting thins them out. */
-    private static final List<String> CHATTER = List.of("idle", "night");
+    private static final List<String> CHATTER = List.of("idle", "night", "new_moon", "sulk");
+    /** A crumb a block, at most this many per Kolobok, and none spawned out of this range of the camera. */
+    private static final int CRUMBS_MAX = 48;
+    private static final double CRUMBS_RANGE = 48.0;
+    /** He dances while a jukebox plays this close, as a parrot does. */
+    private static final double DANCE_RANGE = 3.46;
+
+    /** Each Kolobok's crumbs on the ground, oldest first. */
+    private static final Map<KolobokEntity, ArrayDeque<Particle>> CRUMBS = new WeakHashMap<>();
 
     private KolobokClient() {
     }
@@ -56,6 +69,68 @@ public final class KolobokClient {
         }
         if (entity.getKState() == KState.HOT) {
             steam(entity);
+        }
+        crumbs(entity);
+        drip(entity);
+        dance(entity);
+    }
+
+    /**
+     * Crumbs: in the crumbs mode, or showing the way, he leaves a crumb a block on the ground. Only his
+     * owner sees them, and only the last 48; the server knows nothing of them.
+     */
+    private static void crumbs(KolobokEntity entity) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (!entity.dropsCrumbs() || !KConfig.client().crumbs || minecraft.player == null || !entity.isOwnedBy(minecraft.player)) {
+            entity.clientCrumbPath = 0.0F;
+            return;
+        }
+        if (!entity.onGround()) {
+            return;
+        }
+        double dx = entity.getX() - entity.xo;
+        double dz = entity.getZ() - entity.zo;
+        entity.clientCrumbPath += (float) Math.sqrt(dx * dx + dz * dz);
+        if (entity.clientCrumbPath < 1.0F) {
+            return;
+        }
+        entity.clientCrumbPath -= 1.0F;
+        if (minecraft.gameRenderer.mainCamera().position().distanceToSqr(entity.position()) > CRUMBS_RANGE * CRUMBS_RANGE) {
+            return;
+        }
+        RandomSource random = entity.getRandom();
+        Particle crumb = new CrumbParticle(minecraft.level, entity.getX() + (random.nextDouble() - 0.5) * 0.3,
+                entity.getY(), entity.getZ() + (random.nextDouble() - 0.5) * 0.3);
+        minecraft.particleEngine.add(crumb);
+        ArrayDeque<Particle> mine = CRUMBS.computeIfAbsent(entity, e -> new ArrayDeque<>());
+        mine.add(crumb);
+        while (mine.size() > CRUMBS_MAX) {
+            mine.poll().remove();
+        }
+    }
+
+    /**
+     * Soggy, he drips.
+     */
+    private static void drip(KolobokEntity entity) {
+        if (!entity.hasFlag(KolobokEntity.FLAG_SOGGY) || entity.getRandom().nextInt(8) != 0) {
+            return;
+        }
+        RandomSource random = entity.getRandom();
+        double spread = entity.getBbWidth() * 0.4;
+        entity.level().addParticle(ParticleTypes.DRIPPING_WATER, entity.getX() + (random.nextDouble() - 0.5) * spread,
+                entity.getY() + entity.getBbHeight() * 0.3, entity.getZ() + (random.nextDouble() - 0.5) * spread, 0.0, 0.0, 0.0);
+    }
+
+    /**
+     * He stops dancing once the jukebox is gone or he is out of its reach, as a parrot does.
+     */
+    private static void dance(KolobokEntity entity) {
+        if (entity.clientDancing && (entity.clientJukebox == null
+                || !entity.clientJukebox.closerToCenterThan(entity.position(), DANCE_RANGE)
+                || !entity.level().getBlockState(entity.clientJukebox).is(Blocks.JUKEBOX))) {
+            entity.clientDancing = false;
+            entity.clientJukebox = null;
         }
     }
 

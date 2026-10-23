@@ -10,6 +10,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Rarity;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.item.equipment.Equippable;
+import ru.bagomot.kolobok.item.BindleItem;
 import ru.bagomot.kolobok.item.DoughItem;
 import ru.bagomot.kolobok.item.RollingPinItem;
 import ru.bagomot.kolobok.item.SongbookItem;
@@ -52,6 +53,11 @@ public final class KItems {
     public static final KRegistry.Entry<Item, Item> KOKOSHNIK = REGISTRY.register(
             "kokoshnik",
             key -> new Item(hat(SoundEvents.ARMOR_EQUIP_LEATHER).setId(key)));
+
+    /** Узелок: a stick and three wool. Carries a Kolobok, through portals too. */
+    public static final KRegistry.Entry<Item, BindleItem> BINDLE = REGISTRY.register(
+            "bindle",
+            key -> new BindleItem(BindleItem.properties().setId(key)));
 
     /** Creative tab only: there is no wild Kolobok. */
     public static final KRegistry.Entry<Item, SpawnEggItem> KOLOBOK_SPAWN_EGG = REGISTRY.register(

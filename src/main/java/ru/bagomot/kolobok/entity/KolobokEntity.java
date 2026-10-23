@@ -19,13 +19,17 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.stats.Stats;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.ItemTags;
+import net.minecraft.tags.StructureTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.Prediction;
 import net.minecraft.world.DifficultyInstance;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.SimpleContainer;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -61,13 +65,17 @@ import net.minecraft.world.entity.ai.targeting.TargetingConditions;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.ai.util.LandRandomPos;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.animal.chicken.Chicken;
 import net.minecraft.world.entity.animal.feline.Cat;
 import net.minecraft.world.entity.animal.fox.Fox;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Witch;
+import net.minecraft.world.entity.monster.skeleton.AbstractSkeleton;
+import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -81,8 +89,14 @@ import net.minecraft.world.item.enchantment.EnchantmentEffectComponents;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.MoonPhase;
 import net.minecraft.world.level.ServerLevelAccessor;
+import net.minecraft.world.level.block.AbstractFurnaceBlock;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.levelgen.structure.BuiltinStructures;
+import net.minecraft.world.level.levelgen.structure.StructureStart;
 import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
@@ -103,6 +117,7 @@ import ru.bagomot.kolobok.entity.song.Song;
 import ru.bagomot.kolobok.entity.song.SongText;
 import ru.bagomot.kolobok.entity.song.Syllable;
 import ru.bagomot.kolobok.entity.song.Voice;
+import ru.bagomot.kolobok.item.BindleItem;
 import ru.bagomot.kolobok.item.SongbookItem;
 import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KSounds;
@@ -139,12 +154,12 @@ import java.util.function.Consumer;
  * glass for sunglasses (see {@link Outfit}). Sitting in a metal helmet he sometimes plays the Head
  * from «Руслан и Людмила». Following or wandering, now and then he runs off to sing to animals.
  */
-public class KolobokEntity extends TamableAnimal {
+public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     private static final EntityDataAccessor<Integer> DATA_VARIANT =
             SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.INT);
-    private static final EntityDataAccessor<Byte> DATA_FLAGS =
-            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.BYTE);
+    private static final EntityDataAccessor<Integer> DATA_FLAGS =
+            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_STATE =
             SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Integer> DATA_MOOD =
@@ -168,6 +183,9 @@ public class KolobokEntity extends TamableAnimal {
     /** 0: the whole song; otherwise the one verse he sings, counted from 1. */
     private static final EntityDataAccessor<Byte> DATA_SING_PART =
             SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.BYTE);
+    /** How puffed out his cheeks are, 0–3. */
+    private static final EntityDataAccessor<Byte> DATA_CHEEKS =
+            SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.BYTE);
     /** Ids of the mobs he got away from, in that order, comma-separated: there is no list type. */
     private static final EntityDataAccessor<String> DATA_VERSES =
             SynchedEntityData.defineId(KolobokEntity.class, EntityDataSerializers.STRING);
@@ -180,6 +198,8 @@ public class KolobokEntity extends TamableAnimal {
     public static final int FLAG_CRUMBS = 1 << 5;
     public static final int FLAG_SING_NEW = 1 << 6;
     public static final int FLAG_SING_HEROBRINE = 1 << 7;
+    /** «Это не подгорел, это загар»: fire gave him a tan, and for five minutes he does not burn. */
+    public static final int FLAG_TAN = 1 << 8;
 
     /** How long a line stays in the bubble. */
     public static final int SAY_TICKS = 100;
@@ -341,6 +361,85 @@ public class KolobokEntity extends TamableAnimal {
     private static final double CONCERT_PLAYERS = 6.0;
     private static final int CONCERT_SPEED_TICKS = 400;
 
+    /** On his owner's head he is a helmet of sorts: two points of armour, and a falling anvil bonks him. */
+    private static final Identifier HEAD_ARMOUR = Kolobok.id("on_head");
+    private static final double HEAD_ARMOUR_POINTS = 2.0;
+    /** On the shoulder he watches behind his owner, this far and in a cone this wide, twice a second. */
+    private static final double WATCH_RANGE = 8.0;
+    private static final double WATCH_HALF_ANGLE = Math.toRadians(60.0);
+    private static final int WATCH_GLOW_TICKS = 60;
+    private static final int WATCH_LINE_GAP = 100;
+
+    /** In water or rain this long and he goes soggy, unless «Непотопляемый»… */
+    private static final int SOGGY_TICKS = 100;
+    /** …slower while he is, and dries in two minutes of sun, four times as fast by a fire or a warm stove. */
+    private static final double SOGGY_SPEED = -0.2;
+    private static final int DRY_TICKS = 2400;
+    private static final int DRY_BY_HEAT = 4;
+    /** Fire gives him a tan instead of a burn: five minutes of not burning. */
+    private static final int TAN_TICKS = 6000;
+    /** A hungry owner (food at six or less) may bite a sitting Kolobok: three food, … */
+    private static final int BITE_HUNGER = 6;
+    private static final int BITE_FOOD = 3;
+    /** …a third of his health off until the morning, and five minutes of sulking. */
+    private static final double BITE_HEALTH = -0.3;
+    private static final int SULK_TICKS = 6000;
+    /** Honey heals more than milk and freshens him as well. */
+    private static final float HONEY_HEAL = 10.0F;
+    /** He looks for a witch's hut about him every five seconds and says so at most every half a minute. */
+    private static final int HUT_CHECK = 100;
+    private static final int HUT_LINE_GAP = 600;
+    /** «Морозко» in powder snow, a minute apart. */
+    private static final int FROST_LINE_GAP = 1200;
+    /** A cat sitting this close lulls a sitting Kolobok to sleep. */
+    private static final double CAT_NAP_RANGE = 3.0;
+
+    /** Щёки: nine stacks, twelve at the full moon; nothing but food until his song has five verses. */
+    private static final int CHEEK_SLOTS = 9;
+    private static final int CHEEK_SLOTS_FULL_MOON = 12;
+    private static final int ANY_LOOT_VERSES = 5;
+    /** After spitting out his cheeks he picks nothing up for a while, or he would take it all back. */
+    private static final int SPIT_PAUSE = 200;
+    /** Full cheeks go to his owner from this far, are spat out this close, and he gives up on the way for a while. */
+    private static final double CHEEKS_HOME_RANGE = 48.0;
+    private static final double SPIT_RANGE = 2.5;
+    private static final int CHEEKS_TRIP_TICKS = 400;
+    private static final int CHEEKS_TRIP_GAP = 600;
+
+    /** «Покажи дорогу»: an emerald, once a day, finds the nearest village this many chunks off… */
+    private static final int GUIDE_SEARCH_CHUNKS = 50;
+    private static final int GUIDE_GAP = 24000;
+    /** …he rolls this far towards it, leaving crumbs, then shows the way for a moment. */
+    private static final double GUIDE_DISTANCE = 12.0;
+    private static final int GUIDE_TICKS = 400;
+    private static final int GUIDE_SHOW_TICKS = 60;
+
+    /** Now and then — a look every half a minute, one time in eight — he jumps on a chicken this close… */
+    private static final int CHICKEN_CHECK = 600;
+    private static final int CHICKEN_CHANCE = 8;
+    private static final double CHICKEN_RANGE = 4.0;
+    /** …and rides it for ten to thirty seconds. */
+    private static final int CHICKEN_MIN = 200;
+    private static final int CHICKEN_SPREAD = 400;
+
+    /** «Ко мне!»: his owner's goat horn calls him from this far; from further than the second he is fetched. */
+    private static final double HORN_RANGE = 64.0;
+    private static final double HORN_WALK = 24.0;
+
+    /** «Катись!»: the rolling pin bowls its owner's Kolobok from this close… */
+    public static final double BOWL_REACH = 12.0;
+    /** …at what the owner points at up to this far… */
+    public static final double BOWL_RANGE = 24.0;
+    /** …rolling this fast for this long at most… */
+    private static final double BOWL_SPEED = 0.8;
+    private static final int BOWL_TICKS = 40;
+    /** …through the point and this far past it, as a ball rolls through the pins… */
+    private static final double BOWL_OVERSHOOT = 3.0;
+    /** …and knocking back whatever he rolls into, this hard. Ten at once is a strike. */
+    private static final double BOWL_PUSH = 1.2;
+    private static final int STRIKE = 10;
+    private static final int STRIKE_DIZZY_TICKS = 60;
+
     /**
      * Client-side per-tick work: rolling, blinking, mumbling, steam. Installed by the client
      * initialiser so that this class never mentions a client type and still loads on a dedicated
@@ -368,6 +467,8 @@ public class KolobokEntity extends TamableAnimal {
     public @Nullable Component clientSongLine;
     /** Ticks the mouth stays open after a sung note. */
     public int clientMouthTicks;
+    /** Path rolled since the last crumb, in blocks. */
+    public float clientCrumbPath;
     /** How big he is drawn: 1, or up to 1.75 as the Head. */
     public float clientHeadScale = 1.0F;
     public float clientHeadScaleO = 1.0F;
@@ -455,6 +556,47 @@ public class KolobokEntity extends TamableAnimal {
     private int nextEscapade = ESCAPADE_GAP;
     /** The next look at running off goes ahead whatever the dice say; for tests. */
     private boolean forceEscapade;
+    /** Soggy: ticks wet so far, or, soggy, ticks of drying. */
+    private int wetTicks;
+    private int dryTicks;
+    /** Game time his tan wears off. */
+    private long tanUntil;
+    /** The day he was bitten: the bite heals with the next morning. */
+    private long bittenDay;
+    private int sulkTicks;
+    private int nextHutCheck;
+    private int nextHutLine;
+    private int nextFrostLine;
+    /** A cat sits close by: sitting, he dozes off. */
+    private boolean catNap;
+    /** Client: the jukebox playing close by, as a parrot hears it; he dances. */
+    public @Nullable BlockPos clientJukebox;
+    public boolean clientDancing;
+    /** Щёки: what he picked up. Twelve slots, of which nine are used but at the full moon. */
+    private final SimpleContainer cheeks = new SimpleContainer(CHEEK_SLOTS_FULL_MOON);
+    private int nextPickup;
+    private int nextCheeksTrip;
+    /** «Покажи дорогу»: not again before this game time; GUIDING: the spot, the way, ticks left. */
+    private long nextGuide;
+    private Vec3 guideSpot = Vec3.ZERO;
+    private Vec3 guideWay = Vec3.ZERO;
+    private int guideTicks;
+    private int guideShowTicks;
+    /** ON_CHICKEN: ticks left of the ride, and what he goes back to. */
+    private int chickenTicks;
+    private KState afterChicken = KState.FOLLOW;
+    private int nextChickenCheck = CHICKEN_CHECK;
+    /** On the shoulder he says «Сзади!» no oftener than this. */
+    private int nextWatchLine;
+    /** His owner's goat horn was cooling down at the last look: one blow calls him once. */
+    private boolean hornHeard;
+    /** BOWLING: where he rolls to, ticks left, whom he has knocked over and what he goes back to. */
+    private Vec3 bowlTarget = Vec3.ZERO;
+    private int bowlTicks;
+    private final Set<UUID> bowled = new HashSet<>();
+    private KState afterBowl = KState.FOLLOW;
+    /** After a strike his head spins a while. */
+    private int strikeDizzyTicks;
     /** {@link #DATA_VERSES} parsed, and the string it was parsed from. */
     private String versesRaw = "";
     private List<String> verses = List.of();
@@ -483,7 +625,7 @@ public class KolobokEntity extends TamableAnimal {
     protected void defineSynchedData(SynchedEntityData.Builder entityData) {
         super.defineSynchedData(entityData);
         entityData.define(DATA_VARIANT, Variant.CLASSIC.ordinal());
-        entityData.define(DATA_FLAGS, (byte) 0);
+        entityData.define(DATA_FLAGS, 0);
         entityData.define(DATA_STATE, KState.RUNAWAY.ordinal());
         entityData.define(DATA_MOOD, Mood.HAPPY.ordinal());
         entityData.define(DATA_SAY_KEY, "");
@@ -495,6 +637,7 @@ public class KolobokEntity extends TamableAnimal {
         entityData.define(DATA_SING_SEED, 0);
         entityData.define(DATA_SING_PART, (byte) 0);
         entityData.define(DATA_VERSES, "");
+        entityData.define(DATA_CHEEKS, (byte) 0);
     }
 
     @Override
@@ -518,8 +661,8 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     public void setFlag(int flag, boolean on) {
-        int flags = entityData.get(DATA_FLAGS) & 0xFF;
-        entityData.set(DATA_FLAGS, (byte) (on ? flags | flag : flags & ~flag));
+        int flags = entityData.get(DATA_FLAGS);
+        entityData.set(DATA_FLAGS, on ? flags | flag : flags & ~flag);
     }
 
     public KState getKState() {
@@ -625,12 +768,14 @@ public class KolobokEntity extends TamableAnimal {
     protected void addAdditionalSaveData(ValueOutput output) {
         super.addAdditionalSaveData(output);
         output.putString("Variant", getVariant().serializedName());
-        output.putByte("Flags", entityData.get(DATA_FLAGS));
+        output.putInt("StateFlags", entityData.get(DATA_FLAGS));
         // Sitting on a player is a session thing: the carrier is gone after a restart. The Head's sleep
         // is a minute long; he wakes up from it.
         KState state = switch (getKState()) {
             case ON_PLAYER -> KState.FOLLOW;
             case HEAD_ACT -> afterHeadAct;
+            case BOWLING -> afterBowl;
+            case GUIDING -> KState.FOLLOW;
             default -> getKState();
         };
         output.putString("State", state.name());
@@ -651,13 +796,23 @@ public class KolobokEntity extends TamableAnimal {
         output.putLong("FoxSafeUntil", foxSafeUntil);
         output.putBoolean("FoxRescued", foxRescued);
         output.putBoolean("Kladenets", kladenetsGiven);
+        writeInventoryToTag(output);
+        output.putLong("NextGuide", nextGuide);
+        output.putInt("WetTicks", wetTicks);
+        output.putInt("DryTicks", dryTicks);
+        output.putLong("TanUntil", tanUntil);
+        output.putLong("BittenDay", bittenDay);
+        output.putInt("SulkTicks", sulkTicks);
+        output.putInt("ChickenTicks", chickenTicks);
+        output.putString("AfterChicken", afterChicken.name());
     }
 
     @Override
     protected void readAdditionalSaveData(ValueInput input) {
         super.readAdditionalSaveData(input);
         setVariant(Variant.byName(input.getStringOr("Variant", Variant.CLASSIC.serializedName())));
-        entityData.set(DATA_FLAGS, input.getByteOr("Flags", (byte) 0));
+        // Before v0.6 the flags were a byte under another name.
+        entityData.set(DATA_FLAGS, input.getIntOr("StateFlags", input.getByteOr("Flags", (byte) 0) & 0xFF));
         KState fallback = isTame() ? (isOrderedToSit() ? KState.SIT : KState.FOLLOW) : KState.RUNAWAY;
         KState state;
         try {
@@ -696,8 +851,20 @@ public class KolobokEntity extends TamableAnimal {
         foxSafeUntil = input.getLongOr("FoxSafeUntil", 0L);
         foxRescued = input.getBooleanOr("FoxRescued", false);
         kladenetsGiven = input.getBooleanOr("Kladenets", false);
+        readInventoryFromTag(input);
+        updateCheeks();
+        nextGuide = input.getLongOr("NextGuide", 0L);
+        wetTicks = input.getIntOr("WetTicks", 0);
+        dryTicks = input.getIntOr("DryTicks", 0);
+        tanUntil = input.getLongOr("TanUntil", 0L);
+        bittenDay = input.getLongOr("BittenDay", 0L);
+        sulkTicks = input.getIntOr("SulkTicks", 0);
+        chickenTicks = input.getIntOr("ChickenTicks", CHICKEN_MIN);
+        afterChicken = "WANDER".equals(input.getStringOr("AfterChicken", "FOLLOW")) ? KState.WANDER : KState.FOLLOW;
         applyPerks();
         applyStale();
+        applySoggy();
+        applyBite();
     }
 
     // ------------------------------------------------------------------------------------ spawning
@@ -789,6 +956,7 @@ public class KolobokEntity extends TamableAnimal {
         });
         goalSelector.addGoal(4, new WarmUpGoal());
         goalSelector.addGoal(4, new EscapadeGoal());
+        goalSelector.addGoal(4, new ReturnCheeksGoal());
         goalSelector.addGoal(5, new FollowOwnerGoal(this, 1.1, 6.0F, 2.0F) {
             @Override
             public boolean canUse() {
@@ -824,14 +992,15 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * While hot, in the горнило, resting, in a fox's mouth, on a player or asleep as the Head, the
-     * whole AI step is skipped: nothing may move him. In the горнило and on a player the server places
+     * While hot, in the горнило, resting, in a fox's mouth, on a player, bowled or asleep as the Head,
+     * the whole AI step is skipped: nothing may move him. In the горнило and on a player the server places
      * him itself; a hop is placed tick by tick too.
      */
     @Override
     protected boolean isImmobile() {
         KState state = getKState();
-        return state == KState.ON_PLAYER || state == KState.HEAD_ACT || isSheltered() || hop != null || super.isImmobile();
+        return state == KState.ON_PLAYER || state == KState.HEAD_ACT || state == KState.BOWLING || state == KState.ON_CHICKEN
+                || isSheltered() || hop != null || super.isImmobile();
     }
 
     /**
@@ -863,18 +1032,30 @@ public class KolobokEntity extends TamableAnimal {
         super.tick();
         if (level() instanceof ServerLevel serverLevel) {
             switch (getKState()) {
-                case ON_PLAYER -> carryTick();
+                case ON_PLAYER -> carryTick(serverLevel);
                 case HOT -> hotTick(serverLevel);
                 case IN_STOVE -> visitTick(serverLevel);
                 case CAUGHT -> caughtTick(serverLevel);
                 case RUNAWAY -> chaseTick();
                 case RESTING -> restTick(serverLevel);
                 case HEAD_ACT -> headActTick(serverLevel);
+                case BOWLING -> bowlTick(serverLevel);
+                case GUIDING -> guideTick();
+                case ON_CHICKEN -> chickenTick();
                 default -> {
                 }
             }
             if (charmedTicks > 0) {
                 charmedTicks--;
+            }
+            if (sulkTicks > 0) {
+                sulkTicks--;
+            }
+            if (strikeDizzyTicks > 0 && --strikeDizzyTicks % 5 == 0) {
+                serverLevel.sendParticles(ParticleTypes.CRIT, getX(), getY() + getBbHeight() + 0.2, getZ(), 2, 0.2, 0.05, 0.2, 0.0);
+            }
+            if (tickCount % 4 == 0) {
+                hornTick(serverLevel);
             }
             // A spinning head belongs to the chase; tamed mid-spin, he stops at once.
             if (getKState() != KState.RUNAWAY) {
@@ -882,6 +1063,8 @@ public class KolobokEntity extends TamableAnimal {
             }
             if (tickCount % 20 == 0) {
                 freshnessTick(serverLevel);
+                stateTick(serverLevel);
+                surroundingsTick(serverLevel);
                 outfitTick(serverLevel);
                 // Sat down, hurt or called off while a song held his escapade: it is over.
                 if (escapade != Escapade.NONE && !mayEscape()) {
@@ -890,6 +1073,7 @@ public class KolobokEntity extends TamableAnimal {
                 verseTick(serverLevel);
                 perkTick(serverLevel);
                 maybeStartHeadAct(serverLevel);
+                maybeRideChicken(serverLevel);
                 // The new verse waits for someone to sing it to, and for him to get to a stove if he
                 // is on his way.
                 if (newVerseToSing && !isSinging() && !isSheltered() && !goingToStove && hasAudience(serverLevel)) {
@@ -923,14 +1107,18 @@ public class KolobokEntity extends TamableAnimal {
             mood = Mood.SCARED;
         } else if (isSinging()) {
             mood = Mood.SING;
-        } else if (dizzyTicks > 0) {
+        } else if (dizzyTicks > 0 || strikeDizzyTicks > 0) {
             mood = Mood.DIZZY;
         } else if (isPanicking()) {
             mood = Mood.SCARED;
         } else if ((state == KState.RUNAWAY || escapade == Escapade.GOING) && getNavigation().isInProgress()) {
             mood = Mood.SLY;
-        } else if (state == KState.SIT && level().isDarkOutside()) {
+        } else if (state == KState.SIT && (level().isDarkOutside() || catNap || newMoon())) {
             mood = Mood.SLEEP;
+        } else if (sulkTicks > 0) {
+            mood = Mood.SAD;
+        } else if (cheekPuff() > 0) {
+            mood = Mood.PUFF;
         } else {
             mood = Mood.HAPPY;
         }
@@ -954,7 +1142,11 @@ public class KolobokEntity extends TamableAnimal {
         if (getMood() == Mood.SLEEP || isSinging() || isSheltered()) {
             return;
         }
-        say(getKState() == KState.SIT && level().isDarkOutside() ? "night" : "idle");
+        if (sulkTicks > 0) {
+            say("sulk");
+            return;
+        }
+        say(getKState() == KState.SIT && level().isDarkOutside() ? "night" : newMoon() && random.nextInt(3) == 0 ? "new_moon" : "idle");
     }
 
     /**
@@ -1186,6 +1378,10 @@ public class KolobokEntity extends TamableAnimal {
             return;
         }
         nextSong = SONG_GAP_MIN + random.nextInt(SONG_GAP_MAX - SONG_GAP_MIN);
+        if (fullMoon()) {
+            // «В полном расцвете»: twice as often.
+            nextSong /= 2;
+        }
         startSong(0);
     }
 
@@ -1547,11 +1743,12 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
-     * A rider mob steers its vehicle in vanilla; a fox carrying him must go on steering itself.
+     * A rider mob steers its vehicle in vanilla; a fox carrying him, or a chicken he rides, goes on
+     * steering itself.
      */
     @Override
     public boolean canControlVehicle() {
-        return !(getVehicle() instanceof Fox) && super.canControlVehicle();
+        return !(getVehicle() instanceof Fox || getVehicle() instanceof Chicken) && super.canControlVehicle();
     }
 
     /**
@@ -1623,6 +1820,10 @@ public class KolobokEntity extends TamableAnimal {
             setFlag(FLAG_GLASSES, false);
             spawnAtLocation(level, new ItemStack(Items.TINTED_GLASS));
         }
+        for (ItemStack stack : cheeks.removeAllItems()) {
+            spawnAtLocation(level, stack);
+        }
+        updateCheeks();
         super.dropAllDeathLoot(level, source);
     }
 
@@ -2008,7 +2209,7 @@ public class KolobokEntity extends TamableAnimal {
         if (source.is(DamageTypeTags.IS_EXPLOSION) && hasPerk(Perk.CREEPER)) {
             return true;
         }
-        if (source.is(DamageTypeTags.IS_FIRE) && hasPerk(Perk.BLAZE)) {
+        if (source.is(DamageTypeTags.IS_FIRE) && (hasPerk(Perk.BLAZE) || hasFlag(FLAG_TAN))) {
             return true;
         }
         if (source.is(DamageTypes.WITHER) && hasPerk(Perk.WITHER)) {
@@ -2024,7 +2225,7 @@ public class KolobokEntity extends TamableAnimal {
 
     @Override
     public boolean fireImmune() {
-        return hasPerk(Perk.BLAZE) || super.fireImmune();
+        return hasPerk(Perk.BLAZE) || hasFlag(FLAG_TAN) || super.fireImmune();
     }
 
     /**
@@ -2054,12 +2255,17 @@ public class KolobokEntity extends TamableAnimal {
 
     // ------------------------------------------------------------------------------------ shoulder and head
 
-    private void carryTick() {
+    private void carryTick(ServerLevel level) {
         Player carrier = getCarrier();
         if (carrier == null || !carrier.isAlive() || carrier.isSpectator() || carrier.isSleeping()
                 || carrier.isFallFlying() || carrier.isInWater() && carrier.isSwimming()) {
             getOffPlayer(carrier != null && carrier.isAlive());
             return;
+        }
+        boolean onHead = getRideSlot() == RideSlot.HEAD;
+        headArmour(carrier, onHead);
+        if (!onHead && tickCount % 10 == 0) {
+            watchBehind(level, carrier);
         }
         boolean shifting = carrier.isShiftKeyDown();
         if (shifting && !carrierWasShifting) {
@@ -2086,6 +2292,9 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     private void getOnPlayer(Player player, RideSlot slot) {
+        if (isPassenger()) {
+            stopRiding();
+        }
         entityData.set(DATA_CARRIER, player.getId());
         entityData.set(DATA_RIDE_SLOT, (byte) slot.ordinal());
         setKState(KState.ON_PLAYER);
@@ -2101,6 +2310,9 @@ public class KolobokEntity extends TamableAnimal {
      */
     private void getOffPlayer(boolean carrierStillHere) {
         Player carrier = getCarrier();
+        if (carrier != null) {
+            headArmour(carrier, false);
+        }
         entityData.set(DATA_CARRIER, -1);
         entityData.set(DATA_RIDE_SLOT, (byte) RideSlot.NONE.ordinal());
         setKState(carrierStillHere ? KState.FOLLOW : KState.SIT);
@@ -2115,6 +2327,80 @@ public class KolobokEntity extends TamableAnimal {
     }
 
     /**
+     * On his owner's head he adds two points of armour. The modifier is transient: it is never saved
+     * with the player, so a crash or a lost connection cannot leave it behind.
+     */
+    private static void headArmour(Player player, boolean on) {
+        AttributeInstance armour = player.getAttribute(Attributes.ARMOR);
+        if (armour == null) {
+            return;
+        }
+        if (!on) {
+            armour.removeModifier(HEAD_ARMOUR);
+        } else if (!armour.hasModifier(HEAD_ARMOUR)) {
+            armour.addTransientModifier(new AttributeModifier(HEAD_ARMOUR, HEAD_ARMOUR_POINTS, AttributeModifier.Operation.ADD_VALUE));
+        }
+    }
+
+    /**
+     * «Глаза на затылке»: on the shoulder he keeps an eye behind his owner. A creeper hissing or a
+     * skeleton taking aim back there glows for three seconds, and he shouts.
+     */
+    private void watchBehind(ServerLevel level, Player carrier) {
+        Vec3 back = Vec3.directionFromRotation(0.0F, carrier.getYHeadRot() + 180.0F);
+        double cone = Math.cos(WATCH_HALF_ANGLE);
+        String line = null;
+        for (Mob mob : level.getEntitiesOfClass(Mob.class, carrier.getBoundingBox().inflate(WATCH_RANGE),
+                mob -> sneaksUpOn(mob, carrier))) {
+            Vec3 to = mob.position().subtract(carrier.position()).multiply(1.0, 0.0, 1.0);
+            if (to.lengthSqr() > WATCH_RANGE * WATCH_RANGE || to.lengthSqr() < 1.0E-4 || to.normalize().dot(back) < cone) {
+                continue;
+            }
+            mob.addEffect(new MobEffectInstance(MobEffects.GLOWING, WATCH_GLOW_TICKS, 0, false, false), this);
+            if (line == null || mob instanceof Creeper) {
+                line = mob instanceof Creeper ? "behind_creeper" : "behind_skeleton";
+            }
+        }
+        if (line != null && tickCount >= nextWatchLine) {
+            nextWatchLine = tickCount + WATCH_LINE_GAP;
+            say(line);
+        }
+    }
+
+    /**
+     * @return whether that mob is about to get his owner from behind: a creeper hissing, a skeleton
+     *         drawing its bow at him
+     */
+    private static boolean sneaksUpOn(Mob mob, Player player) {
+        if (mob instanceof Creeper creeper) {
+            return creeper.getSwellDir() > 0;
+        }
+        return mob instanceof AbstractSkeleton skeleton && skeleton.getTarget() == player && skeleton.isUsingItem();
+    }
+
+    /**
+     * A falling anvil, block or stalactite hits a player with a Kolobok on his head: the Kolobok takes
+     * the bonk, and neither of them is hurt. Both loaders' damage events ask this.
+     *
+     * @return whether the damage is turned away
+     */
+    public static boolean bonk(LivingEntity entity, DamageSource source) {
+        if (!(entity instanceof Player player) || !source.is(DamageTypeTags.DAMAGES_HELMET)
+                || !(player.level() instanceof ServerLevel level)) {
+            return false;
+        }
+        for (KolobokEntity kolobok : level.getEntitiesOfClass(KolobokEntity.class, player.getBoundingBox().inflate(1.0),
+                kolobok -> kolobok.getCarrier() == player && kolobok.getRideSlot() == RideSlot.HEAD)) {
+            level.playSound(null, kolobok.getX(), kolobok.getY(), kolobok.getZ(), SoundEvents.WOOL_HIT, kolobok.getSoundSource(), 1.0F, 0.8F);
+            level.sendParticles(ParticleTypes.CRIT, kolobok.getX(), kolobok.getY() + kolobok.getBbHeight(), kolobok.getZ(), 6,
+                    0.2, 0.1, 0.2, 0.1);
+            kolobok.say("bonk");
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Shoulder, then head, then down — Shift and right-click with an empty hand. A
      * parrot keeps its shoulder; Kolobok takes the other one.
      */
@@ -2122,11 +2408,16 @@ public class KolobokEntity extends TamableAnimal {
         RideSlot slot = getKState() == KState.ON_PLAYER ? getRideSlot() : RideSlot.NONE;
         switch (slot) {
             case NONE -> {
+                if (sulkTicks > 0) {
+                    say("sulk");
+                    return;
+                }
+                boolean parrot = !player.getShoulderParrotRight().isEmpty() || !player.getShoulderParrotLeft().isEmpty();
                 RideSlot shoulder = player.getShoulderParrotRight().isEmpty()
                         ? RideSlot.SHOULDER_RIGHT
                         : player.getShoulderParrotLeft().isEmpty() ? RideSlot.SHOULDER_LEFT : RideSlot.HEAD;
                 getOnPlayer(player, shoulder);
-                say(shoulder == RideSlot.HEAD ? "head" : "shoulder");
+                say(parrot ? "parrot" : shoulder == RideSlot.HEAD ? "head" : "shoulder");
             }
             case SHOULDER_LEFT, SHOULDER_RIGHT -> {
                 getOnPlayer(player, RideSlot.HEAD);
@@ -2150,6 +2441,14 @@ public class KolobokEntity extends TamableAnimal {
             return carrier != null && carrier.isShiftKeyDown();
         }
         return super.isPickable();
+    }
+
+    @Override
+    public void remove(Entity.RemovalReason reason) {
+        if (getKState() == KState.ON_PLAYER && getCarrier() != null) {
+            headArmour(getCarrier(), false);
+        }
+        super.remove(reason);
     }
 
     @Override
@@ -2257,6 +2556,9 @@ public class KolobokEntity extends TamableAnimal {
         if (stack.is(KItems.SONGBOOK.get())) {
             return writeSongbook(stack, owner);
         }
+        if (stack.is(KItems.BINDLE.get()) && !BindleItem.isFull(stack)) {
+            return intoBindle(stack, owner);
+        }
         // On the stove he only takes milk.
         if (getKState() == KState.RESTING && !stack.is(Items.MILK_BUCKET)) {
             return InteractionResult.PASS;
@@ -2267,11 +2569,35 @@ public class KolobokEntity extends TamableAnimal {
         if (isWearable(stack)) {
             return dress(player, stack, owner);
         }
-        if (stack.isEmpty() && owner && player.isShiftKeyDown()) {
+        if (getKState() == KState.ON_CHICKEN && owner && stack.isEmpty() && !player.isShiftKeyDown()) {
             if (!level().isClientSide()) {
-                cycleRide(player);
+                offChicken();
             }
             return InteractionResult.SUCCESS;
+        }
+        if (stack.isEmpty() && owner && player.isShiftKeyDown()) {
+            if (!level().isClientSide()) {
+                if (getKState() == KState.SIT && player.getFoodData().getFoodLevel() <= BITE_HUNGER) {
+                    bitten(player);
+                } else {
+                    cycleRide(player);
+                }
+            }
+            return InteractionResult.SUCCESS;
+        }
+        // «Выплюнь!»
+        if (stack.is(KItems.ROLLING_PIN.get()) && owner && player.isShiftKeyDown()) {
+            if (level() instanceof ServerLevel serverLevel) {
+                if (cheeksEmpty()) {
+                    say("cheeks_empty");
+                } else {
+                    spitCheeks(serverLevel, player);
+                }
+            }
+            return InteractionResult.SUCCESS;
+        }
+        if (stack.is(Items.EMERALD) && owner) {
+            return showTheWay(player, stack);
         }
         if (stack.isEmpty() && owner && getKState() != KState.ON_PLAYER) {
             if (!level().isClientSide()) {
@@ -2291,6 +2617,9 @@ public class KolobokEntity extends TamableAnimal {
         }
         if (stack.is(Items.MILK_BUCKET)) {
             return drinkMilk(player, hand, stack);
+        }
+        if (stack.is(Items.HONEY_BOTTLE) && owner) {
+            return drinkHoney(player, hand, stack);
         }
         String refusal = refusalFor(stack);
         if (refusal != null) {
@@ -2710,13 +3039,679 @@ public class KolobokEntity extends TamableAnimal {
         return escapade.name().toLowerCase(Locale.ROOT);
     }
 
+    // ------------------------------------------------------------------------------------ «Ко мне!»
+
+    /**
+     * «Ко мне!»: his owner blew a goat horn, any goat horn. He comes from up to 64 blocks away,
+     * leaving whatever he can leave; from beyond 24 blocks he is fetched, as pets are. The horn's own
+     * cooldown tells that it was blown, so no loader event is needed.
+     */
+    private void hornTick(ServerLevel level) {
+        if (!(getOwner() instanceof ServerPlayer owner)) {
+            hornHeard = false;
+            return;
+        }
+        boolean blown = owner.getCooldowns().isOnCooldown(Items.GOAT_HORN.getDefaultInstance());
+        if (blown && !hornHeard && owner.level() == level && distanceToSqr(owner) <= HORN_RANGE * HORN_RANGE) {
+            comeToHorn(level, owner);
+        }
+        hornHeard = blown;
+    }
+
+    private void comeToHorn(ServerLevel level, ServerPlayer owner) {
+        KState state = getKState();
+        if (hop != null || state == KState.ON_PLAYER || state == KState.CAUGHT || state == KState.HOT
+                || state == KState.BOWLING) {
+            return;
+        }
+        if (state == KState.IN_STOVE) {
+            Direction facing = ovenFacing(level);
+            afterVisit = KState.FOLLOW;
+            if (facing != null && hopOut(level, facing, KState.FOLLOW)) {
+                say("horn");
+            }
+            return;
+        }
+        if (state == KState.RESTING) {
+            afterRest = KState.FOLLOW;
+            getOffStove(level, "horn");
+            return;
+        }
+        if (isPassenger()) {
+            stopRiding();
+        }
+        if (isSinging()) {
+            stopSong();
+        }
+        endEscapade();
+        headActTicks = 0;
+        guardPost = null;
+        if (state != KState.FOLLOW) {
+            setFlag(FLAG_CRUMBS, false);
+        }
+        setKState(KState.FOLLOW);
+        getNavigation().stop();
+        if (distanceToSqr(owner) > HORN_WALK * HORN_WALK) {
+            tryToTeleportToOwner();
+        } else {
+            getNavigation().moveTo(owner, 1.3);
+        }
+        level.sendParticles(ParticleTypes.NOTE, getX(), getY() + getBbHeight() + 0.3, getZ(), 1, 0.0, 0.0, 0.0, 0.0);
+        say("horn");
+    }
+
+    // ------------------------------------------------------------------------------------ bowling
+
+    /**
+     * @return the player's own Kolobok nearest to him that the rolling pin can bowl: one sitting on
+     *         him, or one on the ground within reach that is free to go; {@code null} if none. Works
+     *         on either side, from synced data.
+     */
+    public static @Nullable KolobokEntity bowlerFor(Player player) {
+        return player.level().getEntitiesOfClass(KolobokEntity.class, player.getBoundingBox().inflate(BOWL_REACH),
+                        kolobok -> kolobok.isTame() && kolobok.isOwnedBy(player) && kolobok.canBowl(player)).stream()
+                .min(Comparator.comparingDouble(kolobok -> kolobok.distanceToSqr(player)))
+                .orElse(null);
+    }
+
+    private boolean canBowl(Player player) {
+        KState state = getKState();
+        if (state == KState.ON_PLAYER) {
+            return getCarrier() == player;
+        }
+        return (state == KState.FOLLOW || state == KState.SIT || state == KState.GUARD || state == KState.WANDER)
+                && hop == null && !isPassenger();
+    }
+
+    /**
+     * «Катись!»: rolls straight at that point, fast, knocking back whatever he rolls into without a
+     * scratch on anyone, and goes back to what he was doing. Ten at once is a strike.
+     */
+    public void bowl(Vec3 target) {
+        KState state = getKState();
+        if (state == KState.ON_PLAYER) {
+            getOffPlayer(true);
+        }
+        if (isSinging()) {
+            stopSong();
+        }
+        endEscapade();
+        afterBowl = state == KState.SIT || state == KState.GUARD || state == KState.WANDER ? state : KState.FOLLOW;
+        Vec3 way = target.subtract(position()).multiply(1.0, 0.0, 1.0);
+        bowlTarget = way.lengthSqr() < 1.0E-4 ? target : target.add(way.normalize().scale(BOWL_OVERSHOOT));
+        bowlTicks = BOWL_TICKS;
+        bowled.clear();
+        getNavigation().stop();
+        setKState(KState.BOWLING);
+        say("bowl");
+    }
+
+    private void bowlTick(ServerLevel level) {
+        Vec3 way = bowlTarget.subtract(position()).multiply(1.0, 0.0, 1.0);
+        boolean blocked = bowlTicks < BOWL_TICKS - 2 && horizontalCollision;
+        if (--bowlTicks <= 0 || way.lengthSqr() < 0.6 * 0.6 || blocked || isInWater() || isInLava()) {
+            endBowl(level);
+            return;
+        }
+        Vec3 dir = way.normalize();
+        setDeltaMovement(dir.x * BOWL_SPEED, getDeltaMovement().y, dir.z * BOWL_SPEED);
+        face((float) Math.toDegrees(Math.atan2(-dir.x, dir.z)));
+        for (LivingEntity hit : level.getEntitiesOfClass(LivingEntity.class, getBoundingBox().inflate(0.3), this::bowlable)) {
+            if (bowled.add(hit.getUUID())) {
+                hit.knockback(BOWL_PUSH, -dir.x, -dir.z, damageSources().mobAttack(this), 0.0F);
+                level.playSound(null, hit.getX(), hit.getY(), hit.getZ(), SoundEvents.PLAYER_ATTACK_KNOCKBACK, getSoundSource(),
+                        0.8F, 1.3F);
+            }
+        }
+    }
+
+    /**
+     * @return whether he knocks that over: anyone but players, his owner's pets and his own kind
+     */
+    private boolean bowlable(LivingEntity entity) {
+        if (entity == this || !entity.isAlive() || entity instanceof Player || entity instanceof KolobokEntity
+                || entity.isPassenger() && entity.getVehicle() == this) {
+            return false;
+        }
+        return !(entity instanceof OwnableEntity pet && getOwner() != null && pet.getOwner() == getOwner());
+    }
+
+    private void endBowl(ServerLevel level) {
+        int hits = bowled.size();
+        bowled.clear();
+        bowlTicks = 0;
+        setDeltaMovement(getDeltaMovement().multiply(0.3, 1.0, 0.3));
+        setKState(afterBowl);
+        if (hits >= STRIKE) {
+            strikeDizzyTicks = STRIKE_DIZZY_TICKS;
+            say("strike");
+        } else {
+            say(hits > 0 ? "bowl_hit" : "bowl_miss");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------ states
+
+    /**
+     * Once a second: soaking and drying, the tan wearing off, the bite healing with the morning.
+     */
+    private void stateTick(ServerLevel level) {
+        soggyTick(level);
+        if (hasFlag(FLAG_TAN) && level.getGameTime() >= tanUntil) {
+            setFlag(FLAG_TAN, false);
+        }
+        if (hasFlag(FLAG_BITTEN) && level.getOverworldClockTime() / 24000L != bittenDay) {
+            setFlag(FLAG_BITTEN, false);
+            applyBite();
+            say("bite_healed");
+        }
+    }
+
+    /**
+     * Five seconds in water or rain and he is soggy — slower, with a soggy voice — unless he has
+     * «Непотопляемый». He dries in two minutes in the sun, or in half a minute by a fire, a lit furnace
+     * or campfire, or on a warm stove.
+     */
+    private void soggyTick(ServerLevel level) {
+        boolean soggy = hasFlag(FLAG_SOGGY);
+        if (hasPerk(Perk.DROWNED)) {
+            if (soggy) {
+                setSoggy(false);
+            }
+            wetTicks = 0;
+            return;
+        }
+        boolean wet = isInWaterOrRain() && !isSheltered();
+        if (!soggy) {
+            wetTicks = wet ? wetTicks + 20 : Math.max(0, wetTicks - 20);
+            if (wetTicks >= SOGGY_TICKS) {
+                setSoggy(true);
+                say("soggy");
+            }
+            return;
+        }
+        if (wet) {
+            dryTicks = 0;
+            return;
+        }
+        if (getKState() == KState.RESTING || nearHeat(level)) {
+            dryTicks += 20 * DRY_BY_HEAT;
+        } else if (level.isBrightOutside() && level.canSeeSky(blockPosition().above())) {
+            dryTicks += 20;
+        }
+        if (dryTicks >= DRY_TICKS) {
+            setSoggy(false);
+            say("dried");
+        }
+    }
+
+    private void setSoggy(boolean soggy) {
+        setFlag(FLAG_SOGGY, soggy);
+        wetTicks = 0;
+        dryTicks = 0;
+        applySoggy();
+    }
+
+    private void applySoggy() {
+        modifier(Attributes.MOVEMENT_SPEED, Kolobok.id("soggy/speed"), SOGGY_SPEED, AttributeModifier.Operation.ADD_MULTIPLIED_BASE,
+                hasFlag(FLAG_SOGGY));
+    }
+
+    /**
+     * @return whether something hot is within two blocks: fire, lava, a lit campfire, furnace or stove
+     */
+    private boolean nearHeat(ServerLevel level) {
+        return level.getBlockStatesIfLoaded(getBoundingBox().inflate(2.0)).anyMatch(state -> state.is(BlockTags.FIRE)
+                || state.is(Blocks.LAVA)
+                || (state.is(BlockTags.CAMPFIRES) || state.getBlock() instanceof AbstractFurnaceBlock || state.getBlock() instanceof StovePartBlock)
+                && state.hasProperty(BlockStateProperties.LIT) && state.getValue(BlockStateProperties.LIT));
+    }
+
+    /**
+     * «Это не подгорел, это загар»: the first fire gives him a tan, and for five minutes no fire or lava
+     * burns him.
+     */
+    private void getTan(ServerLevel level) {
+        tanUntil = level.getGameTime() + TAN_TICKS;
+        setFlag(FLAG_TAN, true);
+        clearFire();
+        say("tan");
+    }
+
+    /**
+     * A hungry owner bites him: three food for the owner; for him, a third of his health off until the
+     * morning and five minutes of sulking. Once a day: bitten already, he will not be again.
+     */
+    private void bitten(Player player) {
+        if (hasFlag(FLAG_BITTEN)) {
+            say("bitten_twice");
+            return;
+        }
+        player.getFoodData().eat(BITE_FOOD, 0.3F);
+        level().playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.GENERIC_EAT, SoundSource.PLAYERS, 1.0F, 1.0F);
+        setFlag(FLAG_BITTEN, true);
+        bittenDay = level().getOverworldClockTime() / 24000L;
+        applyBite();
+        if (getHealth() > getMaxHealth()) {
+            setHealth(getMaxHealth());
+        }
+        sulkTicks = SULK_TICKS;
+        say("bitten");
+    }
+
+    private void applyBite() {
+        modifier(Attributes.MAX_HEALTH, Kolobok.id("bite"), BITE_HEALTH, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL,
+                hasFlag(FLAG_BITTEN));
+    }
+
+    /**
+     * Honey: heals more than milk and freshens him. His owner's only; it does not tame.
+     */
+    private InteractionResult drinkHoney(Player player, InteractionHand hand, ItemStack stack) {
+        if (level().isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+        if (getHealth() >= getMaxHealth() && !hasFlag(FLAG_STALE)) {
+            say("full");
+            return InteractionResult.SUCCESS;
+        }
+        player.setItemInHand(hand, ItemUtils.createFilledResult(stack, player, new ItemStack(Items.GLASS_BOTTLE)));
+        heal(HONEY_HEAL);
+        freshen();
+        level().playSound(null, getX(), getY(), getZ(), SoundEvents.HONEY_DRINK, getSoundSource(), 1.0F, 1.2F);
+        say("honey");
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    private boolean newMoon() {
+        return level().environmentAttributes().getValue(EnvironmentAttributes.MOON_PHASE, position()) == MoonPhase.NEW_MOON;
+    }
+
+    /**
+     * Once a second, what is about him: a witch's hut he will not stay in («Это НЕ та бабка!»), powder
+     * snow («Морозко»), a cat sitting close by that lulls him to sleep.
+     */
+    private void surroundingsTick(ServerLevel level) {
+        KState state = getKState();
+        boolean napping = state == KState.SIT && !level.getEntitiesOfClass(Cat.class, getBoundingBox().inflate(CAT_NAP_RANGE),
+                Cat::isInSittingPose).isEmpty();
+        if (napping && !catNap) {
+            say("cat_nap");
+        }
+        catNap = napping;
+        if (isInPowderSnow && tickCount >= nextFrostLine) {
+            nextFrostLine = tickCount + FROST_LINE_GAP;
+            // An ушанка, the leather helmet, keeps the frost off, as in vanilla.
+            say(canFreeze() ? "frost" : "frost_ushanka");
+        }
+        if (tickCount < nextHutCheck || !isTame()) {
+            return;
+        }
+        nextHutCheck = tickCount + HUT_CHECK;
+        StructureStart hut = level.structureManager().getStructureWithPieceAt(blockPosition(),
+                structure -> structure.is(BuiltinStructures.SWAMP_HUT));
+        if (!hut.isValid()) {
+            return;
+        }
+        if (tickCount >= nextHutLine) {
+            nextHutLine = tickCount + HUT_LINE_GAP;
+            say("witch_hut");
+        }
+        if (state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD) {
+            Vec3 away = DefaultRandomPos.getPosAway(this, 12, 5, Vec3.atCenterOf(hut.getBoundingBox().getCenter()));
+            if (away != null) {
+                getNavigation().moveTo(away.x, away.y, away.z, 1.25);
+            }
+        }
+    }
+
+    /**
+     * A jukebox plays close by: he dances to it, as a parrot does. Called on the client only.
+     */
+    @Override
+    public void setRecordPlayingNearby(BlockPos jukebox, boolean playing) {
+        clientJukebox = jukebox;
+        clientDancing = playing;
+    }
+
+    // ------------------------------------------------------------------------------------ cheeks
+
+    @Override
+    public SimpleContainer getInventory() {
+        return cheeks;
+    }
+
+    /**
+     * @return how puffed out his cheeks are, 0–3, for the model
+     */
+    public int cheekPuff() {
+        return entityData.get(DATA_CHEEKS);
+    }
+
+    private boolean fullMoon() {
+        return level().environmentAttributes().getValue(EnvironmentAttributes.MOON_PHASE, position()) == MoonPhase.FULL_MOON;
+    }
+
+    /**
+     * @return how many stacks his cheeks hold: nine, twelve at the full moon («в полном расцвете»)
+     */
+    private int cheekSlots() {
+        return fullMoon() ? CHEEK_SLOTS_FULL_MOON : CHEEK_SLOTS;
+    }
+
+    /**
+     * He picks things up the vanilla way mobs do (so only while mob griefing is on): tamed, about his
+     * business, not singing, and not just after spitting out.
+     */
+    @Override
+    public boolean canPickUpLoot() {
+        KState state = getKState();
+        return isTame() && (state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD) && hop == null
+                && !isSinging() && tickCount >= nextPickup;
+    }
+
+    /**
+     * Food only, until his song has five verses; then anything, but a bindle.
+     */
+    @Override
+    public boolean wantsToPickUp(ServerLevel level, ItemStack stack) {
+        return !stack.is(KItems.BINDLE.get()) && (verses().size() >= ANY_LOOT_VERSES || stack.has(DataComponents.FOOD))
+                && cheekRoom(stack) > 0;
+    }
+
+    /**
+     * Into his cheeks, as much as they hold; what he spat out himself stays where it is.
+     */
+    @Override
+    protected void pickUpItem(ServerLevel level, ItemEntity item) {
+        if (item.getOwner() == this) {
+            return;
+        }
+        ItemStack stack = item.getItem();
+        int taking = Math.min(cheekRoom(stack), stack.getCount());
+        if (taking <= 0) {
+            return;
+        }
+        onItemPickup(item);
+        take(item, taking);
+        ItemStack rest = cheeks.addItem(stack.split(taking));
+        stack.grow(rest.getCount());
+        if (stack.isEmpty()) {
+            item.discard();
+        }
+        updateCheeks();
+        if (cheeksFull()) {
+            say("cheeks_full");
+        } else if (random.nextInt(4) == 0) {
+            say("cheeks");
+        }
+    }
+
+    /**
+     * @return how many of that stack's items his cheeks still take
+     */
+    private int cheekRoom(ItemStack stack) {
+        int room = 0;
+        for (int i = 0; i < cheekSlots(); i++) {
+            ItemStack in = cheeks.getItem(i);
+            if (in.isEmpty()) {
+                room += stack.getMaxStackSize();
+            } else if (ItemStack.isSameItemSameComponents(in, stack)) {
+                room += Math.max(0, in.getMaxStackSize() - in.getCount());
+            }
+        }
+        return room;
+    }
+
+    private int cheekStacks() {
+        int used = 0;
+        for (int i = 0; i < cheeks.getContainerSize(); i++) {
+            if (!cheeks.getItem(i).isEmpty()) {
+                used++;
+            }
+        }
+        return used;
+    }
+
+    public boolean cheeksFull() {
+        return cheekStacks() >= cheekSlots();
+    }
+
+    public boolean cheeksEmpty() {
+        return cheekStacks() == 0;
+    }
+
+    private void updateCheeks() {
+        int used = cheekStacks();
+        entityData.set(DATA_CHEEKS, (byte) (used == 0 ? 0 : Math.min(3, 1 + (used - 1) * 3 / CHEEK_SLOTS)));
+    }
+
+    /**
+     * «Тьфу!» Everything in his cheeks, out towards that player (or ahead of him), where it can be
+     * picked up at once; he takes nothing back for ten seconds.
+     */
+    private void spitCheeks(ServerLevel level, @Nullable Entity towards) {
+        Vec3 dir = towards != null ? towards.position().subtract(position()).multiply(1.0, 0.0, 1.0) : Vec3.ZERO;
+        dir = dir.lengthSqr() < 1.0E-4 ? Vec3.directionFromRotation(0.0F, getYRot()) : dir.normalize();
+        for (ItemStack stack : cheeks.removeAllItems()) {
+            ItemEntity item = new ItemEntity(level, getX(), getY() + getBbHeight() * 0.5, getZ(), stack);
+            item.setDeltaMovement(dir.x * 0.25 + random.nextGaussian() * 0.02, 0.2, dir.z * 0.25 + random.nextGaussian() * 0.02);
+            item.setThrower(this);
+            item.setDefaultPickUpDelay();
+            level.addFreshEntity(item);
+        }
+        nextPickup = tickCount + SPIT_PAUSE;
+        updateCheeks();
+        playSound(SoundEvents.LLAMA_SPIT, 0.6F, 1.4F);
+        say("spit");
+    }
+
+    // ------------------------------------------------------------------------------------ «Покажи дорогу»
+
+    /**
+     * «За проезд»: an emerald, and he finds the nearest village the way a dolphin finds treasure, then
+     * rolls twelve blocks towards it leaving crumbs. Once a game day; with no village about, or one
+     * right here, the emerald stays with its owner.
+     */
+    private InteractionResult showTheWay(Player player, ItemStack emerald) {
+        if (!(level() instanceof ServerLevel level)) {
+            return InteractionResult.SUCCESS;
+        }
+        KState state = getKState();
+        if (!(state == KState.FOLLOW || state == KState.SIT || state == KState.GUARD || state == KState.WANDER) || hop != null) {
+            say("bindle_busy");
+            return InteractionResult.SUCCESS;
+        }
+        if (level.getGameTime() < nextGuide) {
+            say("guide_tired");
+            return InteractionResult.SUCCESS;
+        }
+        BlockPos village = level.findNearestMapStructure(StructureTags.VILLAGE, blockPosition(), GUIDE_SEARCH_CHUNKS, false);
+        if (village == null) {
+            say("guide_none");
+            return InteractionResult.SUCCESS;
+        }
+        Vec3 way = Vec3.atBottomCenterOf(village).subtract(position()).multiply(1.0, 0.0, 1.0);
+        if (way.lengthSqr() < GUIDE_DISTANCE * GUIDE_DISTANCE) {
+            say("guide_here");
+            return InteractionResult.SUCCESS;
+        }
+        emerald.consume(1, player);
+        nextGuide = level.getGameTime() + GUIDE_GAP;
+        if (isSinging()) {
+            stopSong();
+        }
+        endEscapade();
+        guardPost = null;
+        guideWay = way.normalize();
+        guideSpot = position().add(guideWay.scale(GUIDE_DISTANCE));
+        Vec3 ground = LandRandomPos.getPosTowards(this, (int) GUIDE_DISTANCE + 2, 7, guideSpot);
+        if (ground != null && ground.subtract(position()).multiply(1.0, 0.0, 1.0).normalize().dot(guideWay) > 0.8) {
+            guideSpot = ground;
+        }
+        guideTicks = GUIDE_TICKS;
+        guideShowTicks = 0;
+        setKState(KState.GUIDING);
+        getNavigation().moveTo(guideSpot.x, guideSpot.y, guideSpot.z, 1.0);
+        say("guide");
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /** Rolling the way, then a moment of looking along it; then back to following. */
+    private void guideTick() {
+        if (guideShowTicks > 0) {
+            getNavigation().stop();
+            face((float) Math.toDegrees(Math.atan2(-guideWay.x, guideWay.z)));
+            if (--guideShowTicks == 0) {
+                setKState(KState.FOLLOW);
+            }
+            return;
+        }
+        double left = position().multiply(1.0, 0.0, 1.0).distanceTo(guideSpot.multiply(1.0, 0.0, 1.0));
+        if (--guideTicks <= 0 || left < 2.0 || getNavigation().isDone() && GUIDE_TICKS - guideTicks > 20) {
+            guideShowTicks = GUIDE_SHOW_TICKS;
+            getNavigation().stop();
+            say("guide_there");
+        } else if (getNavigation().isDone()) {
+            getNavigation().moveTo(guideSpot.x, guideSpot.y, guideSpot.z, 1.0);
+        }
+    }
+
+    /**
+     * @return whether he leaves crumbs now: in the crumbs mode while following, or showing the way
+     */
+    public boolean dropsCrumbs() {
+        KState state = getKState();
+        return state == KState.GUIDING && guideShowTicks == 0 || state == KState.FOLLOW && hasFlag(FLAG_CRUMBS);
+    }
+
+    // ------------------------------------------------------------------------------------ the chicken
+
+    /**
+     * Чикен-жокей: now and then he jumps on a chicken close by and rides it wherever it goes. The
+     * chicken flaps, so he falls slowly and lands whole.
+     */
+    private void maybeRideChicken(ServerLevel level) {
+        KState state = getKState();
+        if (tickCount < nextChickenCheck || !isTame() || !(state == KState.FOLLOW || state == KState.WANDER) || hop != null
+                || isSinging() || escapade != Escapade.NONE || goingToStove || !onGround() || isPassenger()) {
+            return;
+        }
+        nextChickenCheck = tickCount + CHICKEN_CHECK;
+        if (random.nextInt(CHICKEN_CHANCE) != 0) {
+            return;
+        }
+        Chicken chicken = level.getNearestEntity(Chicken.class, TargetingConditions.forNonCombat(), this, getX(), getY(), getZ(),
+                getBoundingBox().inflate(CHICKEN_RANGE));
+        if (chicken != null) {
+            rideChicken(chicken);
+        }
+    }
+
+    /**
+     * Up on that chicken, if it is a grown one with nobody on it.
+     *
+     * @return whether he is riding it
+     */
+    public boolean rideChicken(Chicken chicken) {
+        if (chicken.isBaby() || chicken.isVehicle() || chicken.isPassenger() || chicken.isLeashed() || !chicken.isAlive()) {
+            return false;
+        }
+        KState state = getKState();
+        getNavigation().stop();
+        if (!startRiding(chicken, true, true)) {
+            return false;
+        }
+        afterChicken = state == KState.WANDER ? KState.WANDER : KState.FOLLOW;
+        setKState(KState.ON_CHICKEN);
+        chickenTicks = CHICKEN_MIN + random.nextInt(CHICKEN_SPREAD);
+        level().playSound(null, chicken.getX(), chicken.getY(), chicken.getZ(), KSounds.CHICKEN_JOCKEY.get(), getSoundSource(),
+                1.0F, 1.0F);
+        say("chicken");
+        return true;
+    }
+
+    private void chickenTick() {
+        if (!(getVehicle() instanceof Chicken chicken) || !chicken.isAlive() || --chickenTicks <= 0 || chicken.isInWater()
+                || chicken.isInLava()) {
+            offChicken();
+        }
+    }
+
+    private void offChicken() {
+        if (isPassenger()) {
+            stopRiding();
+        }
+        setKState(afterChicken);
+        nextChickenCheck = tickCount + CHICKEN_CHECK;
+        say("chicken_off");
+    }
+
+    // ------------------------------------------------------------------------------------ the bindle
+
+    /**
+     * Into his owner's empty bindle, whole, and out of the world. Not from the горнило, a fox's jaws
+     * or the middle of a roll.
+     */
+    private InteractionResult intoBindle(ItemStack bindle, boolean owner) {
+        if (!(level() instanceof ServerLevel level)) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!owner) {
+            say("bindle_stranger");
+            return InteractionResult.SUCCESS;
+        }
+        KState state = getKState();
+        if (hop != null || isInOven() || state == KState.CAUGHT || state == KState.BOWLING) {
+            say("bindle_busy");
+            return InteractionResult.SUCCESS;
+        }
+        if (state == KState.ON_PLAYER) {
+            getOffPlayer(true);
+        }
+        if (isPassenger()) {
+            stopRiding();
+        }
+        if (isSinging()) {
+            stopSong();
+        }
+        endEscapade();
+        dropLeash();
+        headActTicks = 0;
+        restStove = null;
+        KState keep = switch (state) {
+            case SIT, GUARD, WANDER, FOLLOW -> state;
+            case HEAD_ACT -> afterHeadAct;
+            case RESTING -> afterRest == KState.WANDER || afterRest == KState.GUARD ? afterRest : KState.FOLLOW;
+            default -> KState.FOLLOW;
+        };
+        setKState(keep);
+        BindleItem.store(bindle, this);
+        level.playSound(null, getX(), getY(), getZ(), SoundEvents.BUNDLE_INSERT, SoundSource.PLAYERS, 1.0F, 1.0F);
+        level.sendParticles(ParticleTypes.POOF, getX(), getY() + 0.3, getZ(), 6, 0.2, 0.2, 0.2, 0.02);
+        discard();
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
+     * Just out of a bindle, somewhere new: whatever post he kept is far behind.
+     */
+    public void outOfBindle() {
+        oven = null;
+        restStove = null;
+        goingToStove = false;
+        guardPost = getKState() == KState.GUARD ? blockPosition() : null;
+        say("bindle_out");
+    }
+
     // ------------------------------------------------------------------------------------ damage
 
     @Override
     public boolean hurtServer(ServerLevel level, DamageSource source, float damage) {
-        // On a player he is out of the world's way: a low ceiling or a fall is the player's problem.
-        if (getKState() == KState.ON_PLAYER
-                && (source.is(DamageTypes.IN_WALL) || source.is(DamageTypeTags.IS_FALL))) {
+        // On a player he is out of the world's way: a low ceiling or a fall is the player's problem. A
+        // falling anvil bonks him on his owner's head (see bonk), and soft as he is, he is not hurt.
+        if (getKState() == KState.ON_PLAYER && (source.is(DamageTypes.IN_WALL) || source.is(DamageTypeTags.IS_FALL)
+                || source.is(DamageTypeTags.DAMAGES_HELMET))) {
             return false;
         }
         boolean bypass = source.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
@@ -2730,6 +3725,10 @@ public class KolobokEntity extends TamableAnimal {
             if (source.getDirectEntity() instanceof Player player) {
                 burn(player);
             }
+            return false;
+        }
+        if (!bypass && !isSheltered() && source.is(DamageTypeTags.IS_FIRE) && !hasPerk(Perk.BLAZE) && !hasFlag(FLAG_TAN)) {
+            getTan(level);
             return false;
         }
         if (!bypass && (isSheltered() || wardedOff(source))) {
@@ -3127,6 +4126,75 @@ public class KolobokEntity extends TamableAnimal {
                 // Run off, his place taken or the stove cold, he looks again soon; stuck, not for a while.
                 nextStoveTrip = Math.max(nextStoveTrip, tickCount + (stuck >= STOVE_STUCK_TICKS ? STOVE_TRIP_GAP : STOVE_RETRY));
                 getNavigation().stop();
+            }
+        }
+    }
+
+    /**
+     * Full cheeks: he brings them to his owner and spits it all out at his feet. One he cannot get to
+     * he tries again later.
+     */
+    private final class ReturnCheeksGoal extends Goal {
+
+        private int giveUp;
+
+        ReturnCheeksGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        private @Nullable Player owner() {
+            return getOwner() instanceof Player owner && owner.level() == level() && !owner.isSpectator()
+                    && distanceToSqr(owner) <= CHEEKS_HOME_RANGE * CHEEKS_HOME_RANGE ? owner : null;
+        }
+
+        private boolean free() {
+            KState state = getKState();
+            return (state == KState.FOLLOW || state == KState.WANDER) && !isSinging() && hop == null
+                    && escapade == Escapade.NONE && !goingToStove;
+        }
+
+        @Override
+        public boolean canUse() {
+            return tickCount >= nextCheeksTrip && free() && cheeksFull() && owner() != null;
+        }
+
+        @Override
+        public void start() {
+            giveUp = CHEEKS_TRIP_TICKS;
+            say("cheeks_home");
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return giveUp > 0 && free() && !cheeksEmpty() && owner() != null;
+        }
+
+        @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
+        }
+
+        @Override
+        public void tick() {
+            Player owner = owner();
+            if (owner == null || !(level() instanceof ServerLevel level)) {
+                return;
+            }
+            giveUp--;
+            getLookControl().setLookAt(owner);
+            if (distanceToSqr(owner) <= SPIT_RANGE * SPIT_RANGE) {
+                getNavigation().stop();
+                spitCheeks(level, owner);
+            } else if (getNavigation().isDone() || tickCount % 20 == 0) {
+                getNavigation().moveTo(owner, 1.15);
+            }
+        }
+
+        @Override
+        public void stop() {
+            getNavigation().stop();
+            if (!cheeksEmpty()) {
+                nextCheeksTrip = tickCount + CHEEKS_TRIP_GAP;
             }
         }
     }

@@ -218,5 +218,10 @@ writeFileSync(join(OUT, "snore.ogg"), await encode(SNORE));
 writeFileSync(join(OUT, "sneeze.ogg"), await encode(SNEEZE));
 sounds["snore"] = { subtitle: "subtitles.kolobok.snore", sounds: ["kolobok:voice/snore"] };
 sounds["sneeze"] = { subtitle: "subtitles.kolobok.sneeze", sounds: ["kolobok:voice/sneeze"] };
+// Not his voice: the chicken he rides clucks, under a subtitle of his.
+sounds["chicken_jockey"] = {
+  subtitle: "subtitles.kolobok.chicken_jockey",
+  sounds: ["minecraft:mob/chicken/say1", "minecraft:mob/chicken/say2", "minecraft:mob/chicken/say3"],
+};
 writeFileSync(join(ASSETS, "sounds.json"), JSON.stringify(sounds, null, 2) + "\n");
 console.log(`Rendered ${SYLLABLES.length} syllables, the snore and the sneeze to ${OUT}`);

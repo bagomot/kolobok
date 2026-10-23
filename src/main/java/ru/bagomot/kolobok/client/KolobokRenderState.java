@@ -22,6 +22,16 @@ public final class KolobokRenderState extends LivingEntityRenderState {
     public boolean golden;
     /** Three days without milk: drawn duller. */
     public boolean stale;
+    /** A tan from the fire: a darker crust for five minutes. */
+    public boolean tan;
+    /** Soggy: paler, swollen with water. */
+    public boolean soggy;
+    /** Bitten: a bite out of his crust until the morning. */
+    public boolean bitten;
+    /** How puffed out his cheeks are, 0–3. */
+    public int cheeks;
+    /** A jukebox plays close by. */
+    public boolean dancing;
     /** Drawn at a player's shoulder or head rather than where the entity stands. */
     public boolean onPlayer;
     /** On the camera player's own head in first person: drawn not at all, like a shoulder parrot. */

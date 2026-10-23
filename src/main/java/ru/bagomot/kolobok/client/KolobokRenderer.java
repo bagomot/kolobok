@@ -11,6 +11,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.util.ARGB;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
@@ -62,9 +63,12 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final int BURNT_TINT = 0xFF8A6A58;
     private static final int GOLDEN_TINT = 0xFFFFE08A;
     private static final int STALE_TINT = 0xFFC9C3B9;
+    private static final int TAN_TINT = 0xFFB89A84;
+    private static final int SOGGY_TINT = 0xFFE4E2DA;
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
+        addLayer(new KolobokBiteLayer(this));
         addLayer(new KolobokOutfitLayer(this, context.getModelSet()));
     }
 
@@ -99,6 +103,11 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         state.burnt = entity.hasFlag(KolobokEntity.FLAG_BURNT);
         state.golden = entity.hasPerk(Perk.ENDER_DRAGON);
         state.stale = entity.hasFlag(KolobokEntity.FLAG_STALE);
+        state.tan = entity.hasFlag(KolobokEntity.FLAG_TAN);
+        state.soggy = entity.hasFlag(KolobokEntity.FLAG_SOGGY);
+        state.bitten = entity.hasFlag(KolobokEntity.FLAG_BITTEN);
+        state.cheeks = entity.cheekPuff();
+        state.dancing = entity.clientDancing;
         state.bubble = List.of();
         Component text = entity.clientSongLine != null ? entity.clientSongLine : entity.clientLine;
         if (text != null && KConfig.client().bubbles()) {
@@ -212,17 +221,28 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     }
 
     /**
-     * Burnt dough is a darker crust all over; the dragon's verse gilds it; stale, he is duller.
+     * Burnt dough is a darker crust all over, and so, for a while, is a tan; the dragon's verse gilds
+     * it; soggy, he is paler; stale, duller. They add up.
      */
     @Override
     protected int getModelTint(KolobokRenderState state) {
+        int tint = super.getModelTint(state);
         if (state.burnt) {
-            return BURNT_TINT;
+            tint = ARGB.multiply(tint, BURNT_TINT);
+        }
+        if (state.tan) {
+            tint = ARGB.multiply(tint, TAN_TINT);
         }
         if (state.golden) {
-            return GOLDEN_TINT;
+            tint = ARGB.multiply(tint, GOLDEN_TINT);
         }
-        return state.stale ? STALE_TINT : super.getModelTint(state);
+        if (state.soggy) {
+            tint = ARGB.multiply(tint, SOGGY_TINT);
+        }
+        if (state.stale) {
+            tint = ARGB.multiply(tint, STALE_TINT);
+        }
+        return tint;
     }
 
     @Override

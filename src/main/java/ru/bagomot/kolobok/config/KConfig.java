@@ -93,6 +93,7 @@ public final class KConfig {
         public int chattiness = 2;
         /** Where lines go: "bubbles", "chat" or "both". */
         public String speech = "bubbles";
+        /** Bread crumbs behind one's own Kolobok in the crumbs mode, or showing the way. */
         public boolean crumbs = true;
         /** Multiplies the volume of the voice, 0–1. */
         public float voiceVolume = 1.0F;

@@ -5,6 +5,7 @@ import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.codec.ByteBufCodecs;
 import ru.bagomot.kolobok.entity.Variant;
+import ru.bagomot.kolobok.item.StoredKolobok;
 
 public final class KComponents {
 
@@ -19,6 +20,14 @@ public final class KComponents {
             key -> DataComponentType.<Variant>builder()
                     .persistent(Codec.STRING.xmap(Variant::byName, Variant::serializedName))
                     .networkSynchronized(ByteBufCodecs.VAR_INT.map(Variant::byId, Variant::ordinal))
+                    .build());
+
+    /** The Kolobok a bindle carries. */
+    public static final KRegistry.Entry<DataComponentType<?>, DataComponentType<StoredKolobok>> STORED_KOLOBOK = REGISTRY.register(
+            "stored_kolobok",
+            key -> DataComponentType.<StoredKolobok>builder()
+                    .persistent(StoredKolobok.CODEC)
+                    .networkSynchronized(StoredKolobok.STREAM_CODEC)
                     .build());
 
     private KComponents() {
