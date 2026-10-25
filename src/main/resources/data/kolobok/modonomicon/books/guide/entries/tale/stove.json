@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/stove",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.stove.name",
+  "icon": {
+    "id": "minecraft:bricks"
+  },
+  "x": 0,
+  "y": 2,
+  "sort_number": 1
+}

@@ -650,7 +650,10 @@ public class StoveBlockEntity extends BlockEntity {
         return text;
     }
 
-    private Component ovenStatus() {
+    /**
+     * @return what is in the горнило and how far it is: «Сырой колобок, печётся: 45%», «пусто»
+     */
+    public Component ovenStatus() {
         if (oven.isEmpty()) {
             return level != null && hasKolobokInside(level)
                     ? Component.translatable("kolobok.stove.status.kolobok")

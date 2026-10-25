@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/kolobok",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.kolobok.name",
+  "icon": {
+    "id": "kolobok:kolobok_spawn_egg"
+  },
+  "x": 0,
+  "y": 0,
+  "sort_number": 0
+}

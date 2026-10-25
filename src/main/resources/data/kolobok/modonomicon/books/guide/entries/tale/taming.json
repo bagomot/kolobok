@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/taming",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.taming.name",
+  "icon": {
+    "id": "minecraft:milk_bucket"
+  },
+  "x": 0,
+  "y": 6,
+  "sort_number": 3
+}

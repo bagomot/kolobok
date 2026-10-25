@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/fox",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.fox.name",
+  "icon": {
+    "id": "minecraft:sweet_berries"
+  },
+  "x": 0,
+  "y": 14,
+  "sort_number": 7
+}

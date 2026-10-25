@@ -1,5 +1,6 @@
 package ru.bagomot.kolobok.platform.neoforge;
 
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.neoforged.bus.api.IEventBus;
@@ -9,6 +10,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockDropsEvent;
 import net.neoforged.neoforge.registries.RegisterEvent;
@@ -39,6 +41,11 @@ public final class KolobokNeoForge {
         NeoForge.EVENT_BUS.addListener(BlockDropsEvent.class, event -> {
             if (event.getBreaker() instanceof Player player) {
                 KolobokEvents.onBlockBroken(event.getLevel(), player, event.getPos(), event.getState());
+            }
+        });
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, event -> {
+            if (event.getEntity() instanceof ServerPlayer player) {
+                KolobokEvents.onPlayerJoin(player);
             }
         });
         NeoForge.EVENT_BUS.addListener(PlayerInteractEvent.EntityInteract.class, event -> {

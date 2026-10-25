@@ -24,6 +24,17 @@ public class DoughItem extends Item {
     }
 
     /**
+     * @return dough or a raw Kolobok of that variant; the classic one without the component, as crafted
+     */
+    public static ItemStack of(Item item, Variant variant) {
+        ItemStack stack = new ItemStack(item);
+        if (variant != Variant.CLASSIC) {
+            stack.set(KComponents.DOUGH.get(), variant);
+        }
+        return stack;
+    }
+
+    /**
      * «Бородинское тесто», «Сырой Колобочек»: {@code item.kolobok.<id>.<variant>} for every dough
      * but the classic one.
      */

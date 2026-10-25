@@ -15,6 +15,15 @@
         ],
         "client": [
             "ru.bagomot.kolobok.platform.fabric.KolobokFabricClient"
+        ],
+        "jade": [
+            "ru.bagomot.kolobok.compat.jade.KolobokJadePlugin"
+        ],
+        "jei_mod_plugin": [
+            "ru.bagomot.kolobok.compat.jei.KolobokJeiPlugin"
+        ],
+        "rei_client": [
+            "ru.bagomot.kolobok.compat.rei.KolobokReiPlugin"
         ]
     },
     "mixins": [

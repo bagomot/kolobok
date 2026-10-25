@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/outfits",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.outfits.name",
+  "icon": {
+    "id": "kolobok:crown"
+  },
+  "x": 0,
+  "y": 16,
+  "sort_number": 8
+}

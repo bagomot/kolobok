@@ -41,6 +41,29 @@ java {
 
 repositories {
     mavenCentral()
+    // Soft integrations only: JEI, REI (and what its API needs), Jade and Modonomicon.
+    maven("https://maven.blamejared.com/") {
+        name = "BlameJared"
+        content {
+            includeGroup("mezz.jei")
+            includeGroupAndSubgroups("net.mezzdev")
+        }
+    }
+    maven("https://maven.shedaniel.me/") {
+        name = "Shedaniel"
+        content {
+            includeGroupAndSubgroups("me.shedaniel")
+            includeGroup("dev.architectury")
+        }
+    }
+    maven("https://maven.architectury.dev/") {
+        name = "Architectury"
+        content { includeGroup("dev.architectury") }
+    }
+    maven("https://api.modrinth.com/maven") {
+        name = "Modrinth"
+        content { includeGroup("maven.modrinth") }
+    }
 }
 
 // Tests get whatever the mod compiles against — Minecraft's bundled libraries such as Gson live
@@ -54,6 +77,39 @@ afterEvaluate {
 }
 
 dependencies {
+    // Compiled against, never shipped: each integration only runs when its mod is installed.
+    "compileOnly"("mezz.jei:jei-$mcVersion-common-api:${prop("deps.jei")}")
+    "compileOnly"("me.shedaniel:RoughlyEnoughItems-api-$loader:${prop("deps.rei")}") {
+        isTransitive = false
+    }
+    "compileOnly"("me.shedaniel:RoughlyEnoughItems-default-plugin-$loader:${prop("deps.rei")}") {
+        isTransitive = false
+    }
+    // What REI's API shows in its signatures: Cloth's points and rectangles, Architectury's fluids.
+    "compileOnly"("me.shedaniel.cloth:basic-math:${prop("deps.cloth_math")}")
+    "compileOnly"("dev.architectury:architectury-$loader:${prop("deps.architectury")}") {
+        isTransitive = false
+    }
+    "compileOnly"("maven.modrinth:jade:${prop("deps.jade")}")
+
+    // `-Pcompat=jei,jade,modonomicon` (or rei instead of jei) puts the real mods into the dev runs
+    // and the client gametests, to look at the integrations. Never part of a build.
+    val compat = (findProperty("compat") ?: "").toString().split(',').map { it.trim() }.toSet()
+    if ("jei" in compat) {
+        "runtimeOnly"("mezz.jei:jei-$mcVersion-$loader:${prop("deps.jei")}")
+    }
+    if ("rei" in compat) {
+        "runtimeOnly"("me.shedaniel:RoughlyEnoughItems-$loader:${prop("deps.rei")}")
+        // REI asks for Architectury 22.0.3, whose mixins fail on NeoForge 26.3.0.85; a newer one is picked.
+        "runtimeOnly"("dev.architectury:architectury-$loader:${prop("deps.architectury")}")
+    }
+    if ("jade" in compat) {
+        "runtimeOnly"("maven.modrinth:jade:${prop("deps.jade")}")
+    }
+    if ("modonomicon" in compat) {
+        "runtimeOnly"("maven.modrinth:modonomicon:${prop("deps.modonomicon")}")
+    }
+
     "testImplementation"("org.junit.jupiter:junit-jupiter:${prop("deps.junit")}")
     // Gradle 9 no longer adds the launcher implicitly.
     "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")

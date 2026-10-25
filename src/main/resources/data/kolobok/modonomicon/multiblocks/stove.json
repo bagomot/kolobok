@@ -1,0 +1,27 @@
+{
+  "type": "modonomicon:dense",
+  "pattern": [
+    [
+      "__B",
+      "___"
+    ],
+    [
+      "BBB",
+      "BBB"
+    ],
+    [
+      "BBB",
+      "B0B"
+    ]
+  ],
+  "mapping": {
+    "B": {
+      "type": "modonomicon:block",
+      "block": "minecraft:bricks"
+    },
+    "0": {
+      "type": "modonomicon:blockstate",
+      "block": "minecraft:furnace[facing=south]"
+    }
+  }
+}

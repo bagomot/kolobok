@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/controls",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.controls.name",
+  "icon": {
+    "id": "kolobok:rolling_pin"
+  },
+  "x": 0,
+  "y": 8,
+  "sort_number": 4
+}

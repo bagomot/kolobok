@@ -94,6 +94,8 @@ public final class KConfig {
         public int staleDays = 3;
         /** «Покажи дорогу» looks for a village this many chunks off at most, as a dolphin looks for treasure. */
         public int guideSearchChunks = 50;
+        /** Every player gets the guide, «Как печь Колобка», the first time they join. */
+        public boolean guideBook = true;
 
         void clamp() {
             tameChanceDenominator = Math.max(1, tameChanceDenominator);

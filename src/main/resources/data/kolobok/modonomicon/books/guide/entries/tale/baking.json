@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/baking",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.baking.name",
+  "icon": {
+    "id": "kolobok:dough"
+  },
+  "x": 0,
+  "y": 4,
+  "sort_number": 2
+}

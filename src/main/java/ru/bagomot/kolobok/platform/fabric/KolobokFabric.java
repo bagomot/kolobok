@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -33,6 +34,7 @@ public final class KolobokFabric implements ModInitializer {
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> KolobokEvents.allowDamage(entity, source));
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) ->
                 KolobokEvents.onBlockBroken(level, player, pos, state));
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> KolobokEvents.onPlayerJoin(handler.player));
         UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
             if (hand == InteractionHand.MAIN_HAND) {
                 KolobokEvents.onEntityInteract(player, entity);

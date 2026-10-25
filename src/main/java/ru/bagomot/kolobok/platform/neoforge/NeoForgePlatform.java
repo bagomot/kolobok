@@ -1,6 +1,7 @@
 package ru.bagomot.kolobok.platform.neoforge;
 
 import net.minecraft.world.item.CreativeModeTab;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.fml.loading.FMLPaths;
 import ru.bagomot.kolobok.platform.services.Platform;
@@ -22,6 +23,11 @@ public final class NeoForgePlatform implements Platform {
     @Override
     public boolean isDevelopmentEnvironment() {
         return !FMLEnvironment.isProduction();
+    }
+
+    @Override
+    public boolean isModLoaded(String modId) {
+        return ModList.get().isLoaded(modId);
     }
 
     @Override

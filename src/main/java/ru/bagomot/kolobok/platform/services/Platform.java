@@ -28,6 +28,11 @@ public interface Platform {
     boolean isDevelopmentEnvironment();
 
     /**
+     * @return whether a mod of that id is installed: the soft integrations ask before they act
+     */
+    boolean isModLoaded(String modId);
+
+    /**
      * @return a builder for a mod's own creative tab. Vanilla's wants a fixed row and column, which
      *         both loaders replace with their own paging.
      */

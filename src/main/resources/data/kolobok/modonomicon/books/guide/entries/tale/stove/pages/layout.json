@@ -1,0 +1,9 @@
+{
+  "type": "modonomicon:multiblock",
+  "id": "layout",
+  "multiblock_id": "kolobok:stove",
+  "multiblock_name": "book.kolobok.guide.stove.multiblock",
+  "text": "book.kolobok.guide.stove.layout",
+  "show_visualize_button": true,
+  "sort_number": 1
+}

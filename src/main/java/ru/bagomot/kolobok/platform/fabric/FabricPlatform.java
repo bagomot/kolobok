@@ -25,6 +25,11 @@ public final class FabricPlatform implements Platform {
     }
 
     @Override
+    public boolean isModLoaded(String modId) {
+        return FabricLoader.getInstance().isModLoaded(modId);
+    }
+
+    @Override
     public CreativeModeTab.Builder creativeTabBuilder() {
         return FabricCreativeModeTab.builder();
     }

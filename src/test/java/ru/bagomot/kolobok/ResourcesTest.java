@@ -7,12 +7,14 @@ import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
 import ru.bagomot.kolobok.advancement.Tale;
 import ru.bagomot.kolobok.block.StovePart;
+import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Perk;
 import ru.bagomot.kolobok.entity.Variant;
 import ru.bagomot.kolobok.entity.song.SongLine;
 import ru.bagomot.kolobok.entity.song.SongText;
 import ru.bagomot.kolobok.entity.song.Syllable;
+import ru.bagomot.kolobok.guide.GuideBook;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -398,6 +400,135 @@ class ResourcesTest {
         for (Tale event : Tale.values()) {
             assertTrue(awaited.contains(event.getSerializedName()), "no advancement waits for " + event);
             assertTrue(code.contains("Tale." + event.name()), "the code never tells " + event);
+        }
+    }
+
+    @Test
+    void theGuideIsTheSameInModonomiconAndInTheWrittenBook() throws IOException {
+        Set<String> keys = new TreeSet<>();
+        for (String key : List.of("name", "tooltip", "cover", "contents", "tale.name", "stove.multiblock",
+                "stove.bottom", "stove.middle", "stove.top", "stove.back", "stove.front")) {
+            keys.add(GuideBook.KEY + key);
+        }
+        String book = "data/kolobok/modonomicon/books/guide/";
+        JsonObject bookJson = json(book + "book.json");
+        for (String part : List.of("name", "tooltip", "description")) {
+            keys.add(bookJson.get(part).getAsString());
+        }
+        keys.add(json(book + "categories/tale.json").get("name").getAsString());
+        Set<String> entries = new TreeSet<>();
+        try (var files = Files.list(sourceDir("src/main/resources").resolve(book + "entries/tale"))) {
+            files.filter(Files::isRegularFile).forEach(file -> entries.add(file.getFileName().toString().replace(".json", "")));
+        }
+        Set<String> listed = new TreeSet<>();
+        boolean layout = false;
+        for (GuideBook.Entry entry : GuideBook.ENTRIES) {
+            listed.add(entry.id());
+            JsonObject entryJson = json(book + "entries/tale/" + entry.id() + ".json");
+            assertEquals(entry.nameKey(), entryJson.get("name").getAsString(), entry.id());
+            keys.add(entry.nameKey());
+            Set<String> pages = new TreeSet<>();
+            try (var files = Files.list(sourceDir("src/main/resources").resolve(book + "entries/tale/" + entry.id() + "/pages"))) {
+                files.forEach(file -> pages.add(file.getFileName().toString().replace(".json", "")));
+            }
+            assertEquals(new TreeSet<>(entry.pages()), pages, "the pages of " + entry.id());
+            for (String page : entry.pages()) {
+                JsonObject pageJson = json(book + "entries/tale/" + entry.id() + "/pages/" + page + ".json");
+                assertEquals(entry.pageKey(page), pageJson.get("text").getAsString(), entry.id() + "/" + page);
+                keys.add(entry.pageKey(page));
+                if ((entry.id() + "." + page).equals(GuideBook.LAYOUT_PAGE)) {
+                    layout = true;
+                    assertEquals("kolobok:stove", pageJson.get("multiblock_id").getAsString());
+                }
+            }
+        }
+        assertEquals(listed, entries, "the written book and Modonomicon have the same entries");
+        assertTrue(layout, "the stove's layout page is there");
+        JsonObject stove = json("data/kolobok/modonomicon/multiblocks/stove.json");
+        int bricks = 0;
+        int furnaces = 0;
+        for (JsonElement layer : stove.getAsJsonArray("pattern")) {
+            for (JsonElement row : layer.getAsJsonArray()) {
+                for (char c : row.getAsString().toCharArray()) {
+                    bricks += c == 'B' ? 1 : 0;
+                    furnaces += c == '0' ? 1 : 0;
+                }
+            }
+        }
+        assertEquals(12, bricks, "the stove takes 12 bricks");
+        assertEquals(1, furnaces, "and one furnace, the centre");
+        inEveryLanguage(keys);
+        json("data/kolobok/recipe/guide_book.json");
+    }
+
+    @Test
+    void everyHintJadeAndTheViewersShowHasTextInEveryLanguage() throws IOException {
+        Set<String> keys = new TreeSet<>();
+        Path compat = sourceDir("src/main/java/ru/bagomot/kolobok/compat");
+        StringBuilder code = new StringBuilder();
+        try (var files = Files.walk(compat)) {
+            for (Path file : files.filter(f -> f.toString().endsWith(".java")).toList()) {
+                code.append(Files.readString(file));
+            }
+        }
+        // Whole keys only: a prefix the code completes is checked below.
+        Matcher literal = Pattern.compile("(?:translatable\\(|\"(?=kolobok\\.(?:hint|jade)\\.))\"?([a-z_]+\\.[a-z_.]+[a-z_])\"")
+                .matcher(code);
+        while (literal.find()) {
+            keys.add(literal.group(1));
+        }
+        assertTrue(keys.size() >= 10, "found only " + keys);
+        // The guide's pages the hints quote.
+        Matcher page = Pattern.compile("page\\(\"([a-z_.]+)\"\\)").matcher(code);
+        int pages = 0;
+        while (page.find()) {
+            keys.add(GuideBook.KEY + page.group(1));
+            pages++;
+        }
+        assertTrue(pages >= 5, "quotes only " + pages + " pages");
+        for (KState state : KState.values()) {
+            String key = "kolobok.jade.state." + state.name().toLowerCase(java.util.Locale.ROOT);
+            if (state == KState.ON_PLAYER) {
+                keys.add(key + ".head");
+                keys.add(key + ".shoulder");
+            } else {
+                keys.add(key);
+            }
+        }
+        keys.add("kolobok.jade.state.follow.crumbs");
+        Matcher crust = Pattern.compile("CRUST = List\\.of\\(([^)]*)\\)").matcher(code);
+        assertTrue(crust.find(), "the crust's names");
+        Matcher name = Pattern.compile("\"([a-z_]+)\"").matcher(crust.group(1));
+        while (name.find()) {
+            keys.add("kolobok.jade.crust." + name.group(1));
+        }
+        for (Variant variant : Variant.values()) {
+            keys.add("kolobok.variant." + variant.serializedName());
+        }
+        // Jade names each provider in its settings by the plugin's namespace and the provider's id.
+        keys.add("config.jade.plugin_kolobok");
+        Matcher uid = Pattern.compile("UID = Kolobok\\.id\\(\"([a-z_]+)\"\\)").matcher(code);
+        int providers = 0;
+        while (uid.find()) {
+            keys.add("config.jade.plugin_kolobok." + uid.group(1));
+            providers++;
+        }
+        assertEquals(2, providers, "the stove and Kolobok");
+        inEveryLanguage(keys);
+    }
+
+    /** Fails on the first of those keys some language of the mod has no text for. */
+    private static void inEveryLanguage(Set<String> keys) throws IOException {
+        Set<String> languages = new TreeSet<>();
+        try (var files = Files.list(sourceDir("src/main/resources/assets/kolobok/lang"))) {
+            files.forEach(file -> languages.add(file.getFileName().toString().replace(".json", "")));
+        }
+        assertTrue(languages.containsAll(List.of("ru_ru", "en_us")), "found only " + languages);
+        for (String language : languages) {
+            JsonObject lang = json("assets/kolobok/lang/" + language + ".json");
+            for (String key : keys) {
+                assertTrue(lang.has(key), "no " + language + " text for " + key);
+            }
         }
     }
 

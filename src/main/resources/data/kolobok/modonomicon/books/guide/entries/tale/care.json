@@ -1,0 +1,12 @@
+{
+  "type": "modonomicon:content",
+  "id": "kolobok:tale/care",
+  "category": "kolobok:tale",
+  "name": "book.kolobok.guide.care.name",
+  "icon": {
+    "id": "minecraft:honey_bottle"
+  },
+  "x": 0,
+  "y": 10,
+  "sort_number": 5
+}

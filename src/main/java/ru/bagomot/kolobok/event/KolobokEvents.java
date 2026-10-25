@@ -1,6 +1,8 @@
 package ru.bagomot.kolobok.event;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -23,6 +25,7 @@ import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.ai.CatOnStoveGoal;
 import ru.bagomot.kolobok.entity.ai.Goals;
+import ru.bagomot.kolobok.guide.GuideBook;
 import ru.bagomot.kolobok.item.BindleItem;
 
 import java.util.List;
@@ -41,8 +44,25 @@ public final class KolobokEvents {
     private static final int REPKA_BEETROOTS = 6;
     /** Kolobki this close to a petted dog may see it. */
     private static final double JEALOUS_LOOK = 8.0;
+    /** A player who has had the guide carries this tag, a vanilla one saved with the player. */
+    public static final String GUIDE_GIVEN = "kolobok.guide_given";
 
     private KolobokEvents() {
+    }
+
+    /**
+     * A player joins the server: the first time, they get the guide, «Как печь Колобка», unless the
+     * server config says otherwise.
+     */
+    public static void onPlayerJoin(ServerPlayer player) {
+        if (!KConfig.server().guideBook || player.entityTags().contains(GUIDE_GIVEN)) {
+            return;
+        }
+        player.addTag(GUIDE_GIVEN);
+        ItemStack guide = GuideBook.create();
+        if (!player.getInventory().add(guide)) {
+            player.drop(guide, false, Prediction.SERVER_ONLY);
+        }
     }
 
     /**

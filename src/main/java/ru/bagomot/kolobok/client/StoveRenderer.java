@@ -54,6 +54,8 @@ import java.util.Map;
  */
 public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity, StoveRenderer.State> {
 
+    /** With Jade installed the labels move into its tooltip; see {@code compat.jade.StoveProvider}. */
+    private static final boolean JADE = Kolobok.platform().isModLoaded("jade");
     private static final Identifier DOUGH = Kolobok.id("textures/entity/kolobok/dough.png");
     /** Full of baking, the pale dough takes on the crust of what it will be. */
     private static final Map<Variant, Integer> CRUST = new EnumMap<>(Variant.class);
@@ -161,11 +163,11 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
 
     /**
      * The подпечье pointed at: «Дрова: 12/64», and while the fire burns, how long the wood will last.
-     * The горнило pointed at, with something in it: how long until it is done.
+     * The горнило pointed at, with something in it: how long until it is done. None with Jade.
      */
     private static void extractLabel(StoveBlockEntity stove, State state, float partialTicks, Vec3 cameraPosition) {
         state.label = List.of();
-        if (!(Minecraft.getInstance().hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) {
+        if (JADE || !(Minecraft.getInstance().hitResult instanceof BlockHitResult hit) || hit.getType() != HitResult.Type.BLOCK) {
             return;
         }
         BlockPos mouth = stove.getBlockPos();
@@ -199,7 +201,7 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
     }
 
     /** Ticks as «1:05», minutes and seconds, a second started counting whole. */
-    private static String time(float ticks) {
+    public static String time(float ticks) {
         int seconds = Mth.ceil(ticks / 20.0F);
         return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
     }

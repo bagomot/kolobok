@@ -1,0 +1,11 @@
+{
+  "name": "book.kolobok.guide.name",
+  "tooltip": "book.kolobok.guide.tooltip",
+  "description": "book.kolobok.guide.cover",
+  "display_mode": "index",
+  "generate_book_item": true,
+  "model": "modonomicon:modonomicon_red",
+  "creative_tab": "modonomicon:modonomicon",
+  "page_display_mode": "double_page",
+  "default_auto_scale": true
+}
