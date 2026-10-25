@@ -87,6 +87,8 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         super.extractRenderState(entity, state, partialTicks);
         state.variant = entity.getVariant();
         state.roll = Mth.lerp(partialTicks, entity.clientRollO, entity.clientRoll);
+        state.squash = Mth.lerp(partialTicks, entity.clientSquashO, entity.clientSquash);
+        state.hatLag = Mth.lerp(partialTicks, entity.clientHatLagO, entity.clientHatLag);
         state.sitting = entity.isInSittingPose();
         state.face = face(entity);
         state.onPlayer = false;
@@ -171,6 +173,8 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         state.yRot = Mth.wrapDegrees(Mth.rotLerp(partialTicks, carrier.yHeadRotO, carrier.yHeadRot) - bodyYaw);
         state.onPlayer = true;
         state.roll = 0.0F;
+        state.squash = 0.0F;
+        state.hatLag = 0.0F;
         Minecraft minecraft = Minecraft.getInstance();
         state.hidden = minecraft.getCameraEntity() == carrier && minecraft.options.getCameraType().isFirstPerson();
     }

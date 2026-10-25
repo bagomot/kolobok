@@ -6,6 +6,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -69,6 +70,9 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.animal.chicken.Chicken;
 import net.minecraft.world.entity.animal.feline.Cat;
 import net.minecraft.world.entity.animal.fox.Fox;
+import net.minecraft.world.entity.animal.panda.Panda;
+import net.minecraft.world.entity.animal.polarbear.PolarBear;
+import net.minecraft.world.entity.animal.rabbit.Rabbit;
 import net.minecraft.world.entity.animal.wolf.Wolf;
 import net.minecraft.world.entity.animal.wolf.WolfSoundVariant;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
@@ -77,12 +81,16 @@ import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Witch;
+import net.minecraft.world.entity.monster.cubemob.MagmaCube;
+import net.minecraft.world.entity.monster.cubemob.Slime;
 import net.minecraft.world.entity.monster.skeleton.AbstractSkeleton;
+import net.minecraft.world.entity.monster.skeleton.WitherSkeleton;
 import net.minecraft.world.entity.npc.InventoryCarrier;
 import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
+import net.minecraft.world.item.JukeboxSongs;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.Rarity;
 import net.minecraft.world.item.component.ItemLore;
@@ -96,6 +104,7 @@ import net.minecraft.world.level.MoonPhase;
 import net.minecraft.world.level.ServerLevelAccessor;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.entity.JukeboxBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.levelgen.structure.BuiltinStructures;
@@ -405,6 +414,24 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private static final double JEALOUS_RANGE = 8.0;
     private static final int JEALOUS_TICKS = 200;
     private static final int JEALOUS_GAP = 600;
+    /** He has a word for a mob he meets this close once a minute at most, for the same kind every five minutes. */
+    private static final double MEET_RANGE = 12.0;
+    private static final int MEET_GAP = 1200;
+    private static final int MEET_KIND_GAP = 6000;
+    /** Koschei he teases from afar only. */
+    private static final double KOSCHEI_SAFE = 6.0;
+    /** «Шарик», his best friend: wandering, he keeps this close to him, looking for him this far. */
+    private static final double SHARIK_NEAR = 4.0;
+    private static final double SHARIK_RANGE = 24.0;
+    /** His owner dead this close: «Добро пожаловать в клуб». */
+    private static final double OWNER_DEATH_RANGE = 32.0;
+    /** A jukebox this close plays to him, as to a parrot. */
+    private static final double JUKEBOX_RANGE = 3.46;
+    /** Soggy, he sneezes flour now and then: one chance in this many a second. */
+    private static final int FLOUR_SNEEZE_CHANCE = 12;
+    private static final int FLOUR = 0xF7E6BC;
+    /** A fall at least this long ends in a «шлёп». */
+    private static final double SPLAT_FALL = 0.6;
 
     /** Щёки: nine stacks, twelve at the full moon; nothing but food until his song has five verses. */
     private static final int CHEEK_SLOTS = 9;
@@ -466,6 +493,16 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     public float clientRoll;
     public float clientRollO;
     public float clientRollSpeed;
+    /** Client: the body stretched up (above 0) or squashed (below 0) by a jump or a landing, and its spring. */
+    public float clientSquash;
+    public float clientSquashO;
+    public float clientSquashSpeed;
+    /** Client: how many pixels the hat lags below (above 0) or above (below 0) the top of his head. */
+    public float clientHatLag;
+    public float clientHatLagO;
+    /** Client: in the air last tick, and how fast he was falling. */
+    public boolean clientAirborne;
+    public double clientLastDy;
     public int clientBlinkTicks;
     public int clientNextBlink;
     public int clientLastSayUntil;
@@ -586,6 +623,15 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     /** Jealous of the dog: sad for a while, without the sulk after a bite. */
     private int jealousTicks;
     private int nextJealous;
+    /** Meeting mobs: when he may have a word for one next, and for each kind. */
+    private int nextMeetLine;
+    private final Map<String, Integer> nextMeetKind = new HashMap<>();
+    /** «Шарик» within reach, his best friend, as last looked up. */
+    private @Nullable Wolf sharik;
+    /** His owner lay dead close by the last time he looked. */
+    private boolean ownerDead;
+    /** The jukebox playing Pigstep he has had his say about. */
+    private @Nullable BlockPos pigstepHeard;
     private int nextHutCheck;
     private int nextHutLine;
     private int nextFrostLine;
@@ -1002,6 +1048,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         });
         goalSelector.addGoal(5, new ReturnToPostGoal());
         goalSelector.addGoal(5, new VisitStoveGoal());
+        goalSelector.addGoal(5, new SharikGoal());
         goalSelector.addGoal(6, new FoxCuriosityGoal());
         goalSelector.addGoal(6, new WaterAvoidingRandomStrollGoal(this, 0.8) {
             @Override
@@ -1086,7 +1133,11 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             if (jealousTicks > 0) {
                 jealousTicks--;
             }
-            if (strikeDizzyTicks > 0 && --strikeDizzyTicks % 5 == 0) {
+            if (strikeDizzyTicks > 0) {
+                strikeDizzyTicks--;
+            }
+            // A head spinning after a strike or a long chase: stars round it.
+            if ((strikeDizzyTicks > 0 || dizzyTicks > 0) && tickCount % 5 == 0) {
                 serverLevel.sendParticles(ParticleTypes.CRIT, getX(), getY() + getBbHeight() + 0.2, getZ(), 2, 0.2, 0.05, 0.2, 0.0);
             }
             if (tickCount % 4 == 0) {
@@ -1109,6 +1160,9 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 perkTick(serverLevel);
                 maybeStartHeadAct(serverLevel);
                 maybeRideChicken(serverLevel);
+                meetTick(serverLevel);
+                ownerDeathTick();
+                pigstepTick(serverLevel);
                 // The new verse waits for someone to sing it to, and for him to get to a stove if he
                 // is on his way.
                 if (newVerseToSing && !isSinging() && !isSheltered() && !goingToStove && hasAudience(serverLevel)) {
@@ -2844,6 +2898,18 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * Puts it on him, one of the stack: a hat or a helmet on his head, boots on his feet, tinted glass
      * over his eyes. What he wore there before goes back to the player. Only his owner dresses him.
      */
+    /**
+     * @return what he says of his new лапти: bast ones from leather boots, «кованые» from metal ones,
+     *         «лапти-люкс» from gold
+     */
+    private static String laptiLine(ItemStack boots) {
+        return switch (Outfit.material(boots)) {
+            case LEATHER -> "dress_lapti";
+            case GOLD -> "dress_lapti_gold";
+            default -> "dress_lapti_forged";
+        };
+    }
+
     private InteractionResult dress(Player player, ItemStack stack, boolean owner) {
         if (level().isClientSide()) {
             return InteractionResult.SUCCESS;
@@ -2877,7 +2943,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             player.drop(old, false, Prediction.SERVER_ONLY);
         }
         Outfit.Hat hat = Outfit.hat(getItemBySlot(EquipmentSlot.HEAD));
-        say(boots ? "dress_lapti" : "dress_" + (hat == null ? Outfit.Hat.NONE : hat).name().toLowerCase(Locale.ROOT));
+        say(boots ? laptiLine(getItemBySlot(EquipmentSlot.FEET)) : "dress_" + (hat == null ? Outfit.Hat.NONE : hat).name().toLowerCase(Locale.ROOT));
         if (!boots && hat == Outfit.Hat.HELMET) {
             TaleTrigger.award(player, Tale.HELMET);
         } else if (!boots && hat == Outfit.Hat.CROWN) {
@@ -3342,6 +3408,9 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             }
             return;
         }
+        if (random.nextInt(FLOUR_SNEEZE_CHANCE) == 0 && !isSheltered()) {
+            sneezeFlour(level);
+        }
         if (wet) {
             dryTicks = 0;
             return;
@@ -3355,6 +3424,15 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             setSoggy(false);
             say("dried");
         }
+    }
+
+    /**
+     * Soggy, he sneezes flour: a puff of it in front of his face.
+     */
+    private void sneezeFlour(ServerLevel level) {
+        playSound(KSounds.SNEEZE_FLOUR.get(), 0.5F, voice() * 1.15F);
+        Vec3 face = position().add(0.0, getBbHeight() * 0.5, 0.0).add(Vec3.directionFromRotation(0.0F, yBodyRot).scale(0.4));
+        level.sendParticles(new DustParticleOptions(FLOUR, 1.0F), face.x, face.y, face.z, 12, 0.15, 0.1, 0.15, 0.02);
     }
 
     private void setSoggy(boolean soggy) {
@@ -3485,6 +3563,10 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * Both loaders' entity interaction events ask this.
      */
     public void sawDogPetted(Wolf dog) {
+        if (isSharik(dog)) {
+            // His best friend: him he does not grudge it.
+            return;
+        }
         KState state = getKState();
         boolean free = state == KState.FOLLOW || state == KState.SIT || state == KState.GUARD || state == KState.WANDER
                 || state == KState.ON_PLAYER;
@@ -3502,7 +3584,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      */
     private void dogWhines(ServerLevel level, Player owner) {
         for (Wolf dog : level.getEntitiesOfClass(Wolf.class, getBoundingBox().inflate(JEALOUS_RANGE),
-                dog -> dog.isTame() && dog.isOwnedBy(owner) && dog.isAlive() && dog.hasLineOfSight(this))) {
+                dog -> dog.isTame() && dog.isOwnedBy(owner) && dog.isAlive() && !isSharik(dog) && dog.hasLineOfSight(this))) {
             Holder<WolfSoundVariant> sounds = dog.get(DataComponents.WOLF_SOUND_VARIANT);
             if (sounds != null) {
                 WolfSoundVariant.WolfSoundSet set = dog.isBaby() ? sounds.value().babySounds() : sounds.value().adultSounds();
@@ -3983,14 +4065,160 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         return KSounds.mumble(new Syllable(Syllable.NO_ONSET, 'а', true));
     }
 
+    /**
+     * Rolling, his crust crunches: a fresh one crisply, a stale one like a rusk, a soggy one not at
+     * all. In лапти he walks and steps as anyone does.
+     */
     @Override
     protected void playStepSound(BlockPos pos, BlockState blockState) {
-        // Rolling bread makes no footsteps; the crust crunch arrives with the other sounds.
+        if (!getItemBySlot(EquipmentSlot.FEET).isEmpty()) {
+            super.playStepSound(pos, blockState);
+        } else if (!hasFlag(FLAG_SOGGY)) {
+            playSound(hasFlag(FLAG_STALE) ? KSounds.CRUNCH_STALE.get() : KSounds.CRUNCH.get(), 0.15F, 0.9F + random.nextFloat() * 0.2F);
+        }
+    }
+
+    /** «Боинг!» */
+    @Override
+    public void jumpFromGround() {
+        super.jumpFromGround();
+        playSound(KSounds.BOING.get(), 0.35F, voice());
+    }
+
+    /** «Шлёп!» */
+    @Override
+    protected void checkFallDamage(double ya, boolean onGround, BlockState onState, BlockPos pos) {
+        if (onGround && fallDistance >= SPLAT_FALL && !level().isClientSide() && !isInWater()) {
+            playSound(KSounds.SPLAT.get(), 0.4F, voice());
+        }
+        super.checkFallDamage(ya, onGround, onState, pos);
     }
 
     @Override
     public SoundSource getSoundSource() {
         return SoundSource.NEUTRAL;
+    }
+
+    // ------------------------------------------------------------------------------------ neighbours
+
+    /**
+     * Once a second, the mobs he meets: he has a word for a hare, a wild wolf, a bear, a fox, his
+     * cousins the slimes, Koschei from afar, a witch and his friend Шарик. A word a minute at most,
+     * for the same kind every five minutes, and only when he is not saying something else.
+     */
+    private void meetTick(ServerLevel level) {
+        sharik = findSharik(level);
+        KState state = getKState();
+        boolean free = state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD || state == KState.SIT
+                || state == KState.ON_PLAYER || state == KState.RUNAWAY;
+        // A word about a neighbour never cuts in on another line.
+        if (!free || tickCount < nextMeetLine || isSinging() || getMood() == Mood.SLEEP || getSayUntil() > level.getGameTime()) {
+            return;
+        }
+        String said = null;
+        double nearest = Double.MAX_VALUE;
+        for (LivingEntity mob : level.getEntitiesOfClass(LivingEntity.class, getBoundingBox().inflate(MEET_RANGE),
+                mob -> mob != this && mob.isAlive())) {
+            String kind = meeting(mob);
+            double distance = distanceToSqr(mob);
+            if (kind != null && distance < nearest && tickCount >= nextMeetKind.getOrDefault(kind, 0) && hasLineOfSight(mob)) {
+                said = kind;
+                nearest = distance;
+            }
+        }
+        if (said != null) {
+            nextMeetLine = tickCount + MEET_GAP;
+            nextMeetKind.put(said, tickCount + MEET_KIND_GAP);
+            say(said);
+        }
+    }
+
+    /**
+     * @return what he says on meeting that mob, or {@code null} if he has nothing to say of it
+     */
+    private @Nullable String meeting(LivingEntity mob) {
+        if (isSharik(mob)) {
+            return "sharik";
+        }
+        if (mob instanceof Fox) {
+            return hasPerk(Perk.FOX) ? "fox_wise" : fears(mob) ? "fox_seen" : null;
+        }
+        if (mob instanceof Rabbit) {
+            return fears(mob) ? "rabbit" : null;
+        }
+        if (mob instanceof Wolf) {
+            return fears(mob) ? "wolf" : null;
+        }
+        if (mob instanceof PolarBear) {
+            return "polar_bear";
+        }
+        if (mob instanceof Panda) {
+            return "panda";
+        }
+        if (mob instanceof MagmaCube) {
+            return "magma_cube";
+        }
+        if (mob instanceof Slime) {
+            return "slime";
+        }
+        if (mob instanceof WitherSkeleton) {
+            return distanceToSqr(mob) >= KOSCHEI_SAFE * KOSCHEI_SAFE ? "koschei" : null;
+        }
+        if (mob instanceof Witch) {
+            return "witch";
+        }
+        return null;
+    }
+
+    /**
+     * @return whether that is Шарик, his best friend: a tamed dog of that name, in Cyrillic or Latin
+     *         letters. A wild wolf of that name is a wolf.
+     */
+    public static boolean isSharik(Entity entity) {
+        if (!(entity instanceof Wolf dog) || !dog.isTame() || dog.getCustomName() == null) {
+            return false;
+        }
+        String name = dog.getCustomName().getString().strip().toLowerCase(Locale.ROOT);
+        return name.equals("шарик") || name.equals("sharik");
+    }
+
+    private @Nullable Wolf findSharik(ServerLevel level) {
+        return level.getEntitiesOfClass(Wolf.class, getBoundingBox().inflate(SHARIK_RANGE), KolobokEntity::isSharik).stream()
+                .min(Comparator.comparingDouble(this::distanceToSqr)).orElse(null);
+    }
+
+    /**
+     * His owner has just died close by: «Ты тоже ушёл? Добро пожаловать в клуб.»
+     */
+    private void ownerDeathTick() {
+        boolean dead = getOwner() instanceof Player owner && owner.isDeadOrDying()
+                && distanceToSqr(owner) <= OWNER_DEATH_RANGE * OWNER_DEATH_RANGE;
+        if (dead && !ownerDead && getMood() != Mood.SLEEP && !isSheltered()) {
+            say("owner_died");
+        }
+        ownerDead = dead;
+    }
+
+    /**
+     * A jukebox close by plays Pigstep: «Это что, пиглинский рэп?», once a record.
+     */
+    private void pigstepTick(ServerLevel level) {
+        BlockPos playing = null;
+        BlockPos at = blockPosition();
+        for (BlockPos pos : BlockPos.betweenClosed(at.offset(-3, -3, -3), at.offset(3, 3, 3))) {
+            if (level.getBlockState(pos).is(Blocks.JUKEBOX) && pos.closerToCenterThan(position(), JUKEBOX_RANGE)
+                    && level.getBlockEntity(pos) instanceof JukeboxBlockEntity jukebox && jukebox.getSongPlayer().isPlaying()
+                    && jukebox.getSongPlayer().getSong() != null
+                    && level.registryAccess().lookupOrThrow(Registries.JUKEBOX_SONG).getResourceKey(jukebox.getSongPlayer().getSong())
+                    .filter(JukeboxSongs.PIGSTEP::equals).isPresent()) {
+                playing = pos.immutable();
+                break;
+            }
+        }
+        if (playing != null && !playing.equals(pigstepHeard) && !isSinging() && getMood() != Mood.SLEEP) {
+            say("pigstep");
+        }
+        pigstepHeard = playing;
     }
 
     // ------------------------------------------------------------------------------------ goal classes
@@ -4620,6 +4848,46 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         public void stop() {
             curiousAboutFox = false;
             fox = null;
+        }
+    }
+
+    /**
+     * Wandering, he keeps near his best friend Шарик, and goes after him when the dog runs off.
+     */
+    private final class SharikGoal extends Goal {
+
+        SharikGoal() {
+            setFlags(EnumSet.of(Goal.Flag.MOVE));
+        }
+
+        @Override
+        public boolean canUse() {
+            return getKState() == KState.WANDER && sharik != null && sharik.isAlive() && hop == null
+                    && distanceToSqr(sharik) > SHARIK_NEAR * SHARIK_NEAR;
+        }
+
+        @Override
+        public boolean canContinueToUse() {
+            return getKState() == KState.WANDER && sharik != null && sharik.isAlive() && !getNavigation().isDone()
+                    && distanceToSqr(sharik) > 2.0 * 2.0;
+        }
+
+        @Override
+        public void start() {
+            getNavigation().moveTo(sharik, 1.0);
+        }
+
+        @Override
+        public void tick() {
+            // The dog does not stand still for him.
+            if (tickCount % 10 == 0 && sharik != null) {
+                getNavigation().moveTo(sharik, 1.0);
+            }
+        }
+
+        @Override
+        public void stop() {
+            getNavigation().stop();
         }
     }
 }

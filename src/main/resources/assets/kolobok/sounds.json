@@ -606,5 +606,98 @@
       "minecraft:mob/chicken/say2",
       "minecraft:mob/chicken/say3"
     ]
+  },
+  "sneeze_flour": {
+    "subtitle": "subtitles.kolobok.sneeze_flour",
+    "sounds": [
+      "kolobok:voice/sneeze"
+    ]
+  },
+  "crunch": {
+    "subtitle": "subtitles.kolobok.crunch",
+    "sounds": [
+      {
+        "name": "minecraft:step/snow1",
+        "pitch": 1.3
+      },
+      {
+        "name": "minecraft:step/snow2",
+        "pitch": 1.3
+      },
+      {
+        "name": "minecraft:step/snow3",
+        "pitch": 1.3
+      },
+      {
+        "name": "minecraft:step/snow4",
+        "pitch": 1.3
+      }
+    ]
+  },
+  "crunch_stale": {
+    "subtitle": "subtitles.kolobok.crunch",
+    "sounds": [
+      {
+        "name": "minecraft:step/gravel1",
+        "pitch": 1.5
+      },
+      {
+        "name": "minecraft:step/gravel2",
+        "pitch": 1.5
+      },
+      {
+        "name": "minecraft:step/gravel3",
+        "pitch": 1.5
+      },
+      {
+        "name": "minecraft:step/gravel4",
+        "pitch": 1.5
+      }
+    ]
+  },
+  "boing": {
+    "subtitle": "subtitles.kolobok.boing",
+    "sounds": [
+      {
+        "name": "minecraft:block/shelf_mushroom/bounce1"
+      },
+      {
+        "name": "minecraft:block/shelf_mushroom/bounce2"
+      },
+      {
+        "name": "minecraft:block/shelf_mushroom/bounce3"
+      },
+      {
+        "name": "minecraft:block/shelf_mushroom/bounce4"
+      },
+      {
+        "name": "minecraft:block/shelf_mushroom/bounce5"
+      }
+    ]
+  },
+  "splat": {
+    "subtitle": "subtitles.kolobok.splat",
+    "sounds": [
+      {
+        "name": "minecraft:mob/slime/small1",
+        "pitch": 1.2
+      },
+      {
+        "name": "minecraft:mob/slime/small2",
+        "pitch": 1.2
+      },
+      {
+        "name": "minecraft:mob/slime/small3",
+        "pitch": 1.2
+      },
+      {
+        "name": "minecraft:mob/slime/small4",
+        "pitch": 1.2
+      },
+      {
+        "name": "minecraft:mob/slime/small5",
+        "pitch": 1.2
+      }
+    ]
   }
 }

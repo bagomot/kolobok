@@ -105,12 +105,19 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
             float speed = Math.min(1.0F, state.walkAnimationSpeed);
             body.y -= OutfitModels.LAPTI_LIFT + Math.abs(Mth.sin(state.walkAnimationPos * 0.6662F)) * 0.5F * speed;
         }
-        if (state.sitting) {
-            // A little squashed when he sits, bottom kept on the ground.
-            body.yScale = 0.9F;
-            body.xScale = 1.05F;
-            body.zScale = 1.05F;
-            body.y += 5.0F * (1.0F - body.yScale);
+        // A little squashed when he sits; stretched by a jump and squashed by a landing, as much wider
+        // as he is lower. The bottom stays where it was.
+        float yScale = state.sitting ? 0.9F : 1.0F;
+        float xzScale = state.sitting ? 1.05F : 1.0F;
+        if (state.squash != 0.0F) {
+            yScale *= 1.0F + state.squash;
+            xzScale /= Mth.sqrt(1.0F + state.squash);
+        }
+        if (yScale != 1.0F || xzScale != 1.0F) {
+            body.yScale = yScale;
+            body.xScale = xzScale;
+            body.zScale = xzScale;
+            body.y += 5.0F * (1.0F - yScale);
         }
         if (state.dancing) {
             // As a parrot at a jukebox: bobbing to the beat, swaying from side to side.
@@ -128,6 +135,6 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
             part.yScale = cheek;
             part.zScale = cheek;
         }
-        hat.y = body.y - 5.0F * body.yScale;
+        hat.y = body.y - 5.0F * body.yScale + state.hatLag;
     }
 }

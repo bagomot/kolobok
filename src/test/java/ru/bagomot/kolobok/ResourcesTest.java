@@ -1,5 +1,6 @@
 package ru.bagomot.kolobok;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
@@ -155,6 +156,18 @@ class ResourcesTest {
                 }
             }
         }
+        // What he says on meeting a mob and on new лапти, these methods return; every word in them is a line.
+        for (String picker : List.of("String meeting(", "String laptiLine(")) {
+            int start = code.indexOf(picker);
+            assertTrue(start >= 0, picker);
+            Matcher word = Pattern.compile("\"([a-z_]+)\"").matcher(code.substring(start, code.indexOf("\n    }\n", start)));
+            int found = 0;
+            while (word.find()) {
+                said.add(word.group(1));
+                found++;
+            }
+            assertTrue(found >= 3, picker + " picks only " + found);
+        }
         assertTrue(said.size() > 50, "found only " + said);
         Map<String, Set<String>> ru = categories(json("assets/kolobok/lang/ru_ru.json"));
         Map<String, Set<String>> en = categories(json("assets/kolobok/lang/en_us.json"));
@@ -291,6 +304,30 @@ class ResourcesTest {
         }
         for (String name : List.of("ushanka", "lapti_dyed", "glasses")) {
             texture("entity/kolobok/outfit/" + name);
+        }
+    }
+
+    @Test
+    void everySoundHasASubtitleInBothLanguagesAndItsOwnFilesExist() throws IOException {
+        JsonObject sounds = json("assets/kolobok/sounds.json");
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        for (String name : List.of("sneeze_flour", "crunch", "crunch_stale", "boing", "splat")) {
+            assertTrue(sounds.has(name), name);
+        }
+        for (Map.Entry<String, JsonElement> event : sounds.entrySet()) {
+            JsonObject sound = event.getValue().getAsJsonObject();
+            String subtitle = sound.get("subtitle").getAsString();
+            assertTrue(ru.has(subtitle) && en.has(subtitle), event.getKey() + ": " + subtitle);
+            for (JsonElement file : sound.getAsJsonArray("sounds")) {
+                String id = file.isJsonObject() ? file.getAsJsonObject().get("name").getAsString() : file.getAsString();
+                // Vanilla samples are the game's; ours must be in the jar.
+                if (id.startsWith("kolobok:")) {
+                    try (InputStream ogg = resource("assets/kolobok/sounds/" + id.substring("kolobok:".length()) + ".ogg")) {
+                        assertNotNull(ogg, id);
+                    }
+                }
+            }
         }
     }
 

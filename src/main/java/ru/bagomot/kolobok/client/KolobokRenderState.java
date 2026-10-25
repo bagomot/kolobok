@@ -15,6 +15,10 @@ public final class KolobokRenderState extends LivingEntityRenderState {
     public int face;
     /** Rolling angle of the body, radians. */
     public float roll;
+    /** Stretched up (above 0) or squashed (below 0) by a jump or a landing. */
+    public float squash;
+    /** Pixels the hat lags below (above 0) or above (below 0) the top of his head. */
+    public float hatLag;
     public boolean sitting;
     /** Burnt in the oven: drawn with a darker crust. */
     public boolean burnt;

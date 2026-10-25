@@ -37,6 +37,14 @@ public final class KSounds {
     public static final KRegistry.Entry<SoundEvent, SoundEvent> SNEEZE = event("sneeze");
     /** Not his voice: a chicken's clucks, with his subtitle «ЧИКЕН-ЖОКЕЙ!». */
     public static final KRegistry.Entry<SoundEvent, SoundEvent> CHICKEN_JOCKEY = event("chicken_jockey");
+    /** Soggy, he sneezes flour: the Head's sneeze, higher, under its own subtitle. */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> SNEEZE_FLOUR = event("sneeze_flour");
+    /** Rolling, his crust crunches: crisply when fresh, dry as a rusk when stale. Vanilla samples. */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> CRUNCH = event("crunch");
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> CRUNCH_STALE = event("crunch_stale");
+    /** «Боинг» as he jumps and «шлёп» as he lands. Vanilla samples. */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> BOING = event("boing");
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> SPLAT = event("splat");
 
     private KSounds() {
     }

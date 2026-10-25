@@ -59,6 +59,7 @@ public final class KolobokClient {
 
     private static void tick(KolobokEntity entity) {
         roll(entity);
+        bounce(entity);
         growHead(entity);
         blink(entity);
         speech(entity);
@@ -173,6 +174,31 @@ public final class KolobokClient {
             entity.clientRoll -= turns;
             entity.clientRollO -= turns;
         }
+    }
+
+    /**
+     * Jumping he stretches up, landing he squashes flat and springs back. His hat keeps to the top of
+     * his head a moment late: it jumps after him and lands after him.
+     */
+    private static void bounce(KolobokEntity entity) {
+        entity.clientSquashO = entity.clientSquash;
+        entity.clientHatLagO = entity.clientHatLag;
+        double dy = entity.getY() - entity.yo;
+        boolean airborne = !entity.onGround() && !entity.isPassenger() && !entity.isInWater()
+                && entity.getKState() != KState.ON_PLAYER;
+        float target = airborne ? (float) Mth.clamp(dy * 0.6, -0.08, 0.15) : 0.0F;
+        if (!airborne && entity.clientAirborne && entity.clientLastDy < -0.1) {
+            // Landed: squashed the harder, the faster he fell.
+            entity.clientSquashSpeed -= (float) Math.min(0.3, -entity.clientLastDy * 0.5);
+        }
+        entity.clientSquashSpeed = entity.clientSquashSpeed * 0.65F + (target - entity.clientSquash) * 0.3F;
+        entity.clientSquash = Mth.clamp(entity.clientSquash + entity.clientSquashSpeed, -0.35F, 0.25F);
+        // The top of his head went up this many pixels; the hat, left behind, takes half of the way back
+        // each tick. It may sink into him a little, but hangs no more than three pixels above.
+        float headUp = (float) (dy * 16.0) + (entity.clientSquash - entity.clientSquashO) * 10.0F;
+        entity.clientHatLag = Mth.clamp((entity.clientHatLag + headUp) * 0.5F, -3.0F, 0.5F);
+        entity.clientAirborne = airborne;
+        entity.clientLastDy = dy;
     }
 
     /**
