@@ -162,8 +162,21 @@ public final class GenTextures {
         ImageIO.write(songbook(), "png", new File(itemDir, "songbook.png"));
         ImageIO.write(bindle(false), "png", new File(itemDir, "bindle.png"));
         ImageIO.write(bindle(true), "png", new File(itemDir, "bindle_full.png"));
+        // The mod's icon in the loaders' mod lists: the spawn egg's face, eight times as big, pixel for pixel.
+        ImageIO.write(enlarged(spawnEgg(DOUGHS[0]), 8), "png", new File(root.getParentFile(), "icon.png"));
         System.out.println("Wrote " + DOUGHS.length + " atlases, the raw dough, the spawn egg, the rolling pin, the songbook,"
-                + " the bindle, the dough and the raw Kolobok to " + root);
+                + " the bindle, the dough, the raw Kolobok and the mod's icon to " + root);
+    }
+
+    /** Every pixel as a square of {@code times} pixels. */
+    static BufferedImage enlarged(BufferedImage image, int times) {
+        BufferedImage big = new BufferedImage(image.getWidth() * times, image.getHeight() * times, BufferedImage.TYPE_INT_ARGB);
+        for (int y = 0; y < big.getHeight(); y++) {
+            for (int x = 0; x < big.getWidth(); x++) {
+                big.setRGB(x, y, image.getRGB(x / times, y / times));
+            }
+        }
+        return big;
     }
 
     /**

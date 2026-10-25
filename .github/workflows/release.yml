@@ -1,0 +1,38 @@
+# A pushed tag v<version> releases that version: both jars go to Modrinth and CurseForge (the
+# tokens come from the repository's secrets MODRINTH_TOKEN and CURSEFORGE_TOKEN), then to a GitHub
+# release with the version's CHANGELOG.md section as its notes. See RELEASING.md.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Publish to Modrinth and CurseForge
+        run: ./gradlew publishMods
+        env:
+          MODRINTH_TOKEN: ${{ secrets.MODRINTH_TOKEN }}
+          CURSEFORGE_TOKEN: ${{ secrets.CURSEFORGE_TOKEN }}
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes="$RUNNER_TEMP/notes.md"
+          awk -v head="## $version" 'index($0, head) == 1 { on = 1; next } /^## / && on { exit } on' CHANGELOG.md > "$notes"
+          gh release create "$GITHUB_REF_NAME" versions/*/build/libs/*-"$version".jar \
+            --title "Kolobok $version" --notes-file "$notes"

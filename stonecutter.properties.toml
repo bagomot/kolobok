@@ -18,6 +18,13 @@ java.version = "25"
 
 deps.junit = "5.11.4"
 
+# Publishing, `./gradlew publishMods`; see RELEASING.md. Each platform's project id, as its project
+# page shows it; empty skips that platform. The tokens are never kept here (see .env.example).
+publish.modrinth = ""
+publish.curseforge = ""
+# release, beta or alpha
+publish.type = "release"
+
 # Soft integrations: compiled against, never shipped or required. Versions checked against the
 # BlameJared, Shedaniel and Modrinth Mavens on 25.10.2026; EMI and Patchouli have no 26.3 build.
 deps.jei = "31.17.0.93"

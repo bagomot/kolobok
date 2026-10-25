@@ -8,6 +8,7 @@ version = "${mod_version}"
 displayName = "${mod_name}"
 authors = "${mod_author}"
 description = '''${mod_description}'''
+iconFile = "assets/${mod_id}/icon.png"
 
 [[mixins]]
 config = "kolobok.mixins.json"

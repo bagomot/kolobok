@@ -35,10 +35,17 @@ Thumbs.db
 PLAN.md
 kolobok_plan.html
 
-# Local overrides and secrets
+# Local overrides and secrets: publishing tokens live in .env or the environment, never here.
 .env
+.env.*
+!.env.example
+*.token
+secrets.properties
 local.properties
 *.local.gradle
+
+# Local documentation, kept out of the repository
+doc/
 
 # Voice renderer's npm packages
 tools/voice/node_modules/

@@ -14,7 +14,8 @@
             "ru.bagomot.kolobok.gametest.SkillsVisualTest",
             "ru.bagomot.kolobok.gametest.TaleVisualTest",
             "ru.bagomot.kolobok.gametest.NeighboursVisualTest",
-            "ru.bagomot.kolobok.gametest.GuideVisualTest"
+            "ru.bagomot.kolobok.gametest.GuideVisualTest",
+            "ru.bagomot.kolobok.gametest.ShowcaseVisualTest"
         ],
         "jei_mod_plugin": [
             "ru.bagomot.kolobok.gametest.JeiRuntime"

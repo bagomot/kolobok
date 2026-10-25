@@ -58,3 +58,10 @@ fabricApi {
         clearRunDirectory = true
     }
 }
+
+// `-Pshowcase` also stages the README's screenshots (ShowcaseVisualTest) into media/screenshots.
+if (providers.gradleProperty("showcase").isPresent) {
+    tasks.named<JavaExec>("runClientGameTest") {
+        systemProperty("kolobok.showcase", rootProject.file("media/screenshots").absolutePath)
+    }
+}

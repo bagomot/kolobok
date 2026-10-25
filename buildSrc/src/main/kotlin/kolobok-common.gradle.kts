@@ -10,6 +10,7 @@ import org.gradle.language.jvm.tasks.ProcessResources
 
 plugins {
     java
+    id("me.modmuss50.mod-publish-plugin")
 }
 
 fun prop(name: String): String = project.property(name).toString()
@@ -32,7 +33,7 @@ val loaderRange = if (loader == "fabric") ">=${prop("deps.fabric_loader")}" else
 group = prop("mod.group")
 version = modVersion
 // The target is already in the artifact name, so the version stays clean:
-// kolobok-neoforge-26.3-0.1.0.jar
+// kolobok-neoforge-26.3-1.2.0.jar
 base.archivesName.set("$modId-$loader-$mcVersion")
 
 java {
@@ -140,6 +141,9 @@ sourceSets["main"].resources.exclude(
 )
 
 tasks.named<Jar>("jar") {
+    from(rootProject.file("LICENSE")) {
+        rename { "LICENSE_$modId" }
+    }
     manifest {
         attributes(
             mapOf(
@@ -171,4 +175,108 @@ tasks.named<ProcessResources>("processResources") {
         expand(expandProps)
     }
     inputs.properties(expandProps)
+}
+
+// ---------------------------------------------------------------------------------------- publishing
+//
+// `./gradlew publishMods` uploads this node's jar, one per loader, to every platform that has a
+// project id in stonecutter.properties.toml. `-PdryRun` goes through it all without uploading and
+// needs no tokens; a real run needs the release commit tagged v<mod.version>, a clean checkout and
+// the tokens. RELEASING.md has the steps.
+//
+// Tokens never live in the repository: they come from the environment (MODRINTH_TOKEN,
+// CURSEFORGE_TOKEN; in CI from its secrets) or from a git-ignored .env file in the project root.
+
+val isDryRun = providers.gradleProperty("dryRun").isPresent
+val dotEnv: Map<String, String> = rootProject.file(".env").takeIf { it.isFile }?.readLines()
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() && !it.startsWith("#") && '=' in it }
+    ?.associate { it.substringBefore('=').trim() to it.substringAfter('=').trim().removeSurrounding("\"") }
+    ?: emptyMap()
+
+fun secret(name: String): Provider<String> =
+    providers.environmentVariable(name).orElse(providers.provider { dotEnv[name]?.takeIf { it.isNotBlank() } })
+
+/** A platform's project id, or a stand-in on a dry run so that the whole configuration is exercised. */
+fun projectId(name: String): String = prop(name).ifBlank { if (isDryRun) "dry-run" else "" }
+
+val modrinthId = projectId("publish.modrinth")
+val curseforgeId = projectId("publish.curseforge")
+val loaderName = if (loader == "fabric") "Fabric" else "NeoForge"
+// The optional integrations, by each platform's slug for them.
+val modrinthOptional = listOf("jei", "rei", "jade", "modonomicon")
+val curseforgeOptional = listOf("jei", "roughly-enough-items", "jade", "modonomicon")
+
+publishMods {
+    file = tasks.named<Jar>("jar").flatMap { it.archiveFile }
+    version = "$modVersion+$mcVersion-$loader"
+    displayName = "$modName $modVersion for $loaderName $mcVersion"
+    modLoaders.add(loader)
+    type = when (prop("publish.type")) {
+        "beta" -> BETA
+        "alpha" -> ALPHA
+        else -> STABLE
+    }
+    changelog = providers.provider { changelogFor(modVersion) }
+    dryRun = isDryRun
+
+    if (modrinthId.isNotEmpty()) {
+        modrinth {
+            projectId = modrinthId
+            accessToken = secret("MODRINTH_TOKEN")
+            minecraftVersions.add(mcVersion)
+            if (loader == "fabric") {
+                requires("fabric-api")
+            }
+            optional(*modrinthOptional.toTypedArray())
+        }
+    }
+    if (curseforgeId.isNotEmpty()) {
+        curseforge {
+            projectId = curseforgeId
+            accessToken = secret("CURSEFORGE_TOKEN")
+            minecraftVersions.add(mcVersion)
+            javaVersions.add(JavaVersion.toVersion(javaVersion))
+            client = true
+            server = true
+            if (loader == "fabric") {
+                requires("fabric-api")
+            }
+            optional(*curseforgeOptional.toTypedArray())
+        }
+    }
+}
+
+/** The section of CHANGELOG.md under "## <version>", which is what each platform shows for the release. */
+fun changelogFor(version: String): String {
+    val lines = rootProject.file("CHANGELOG.md").readLines()
+    val start = lines.indexOfFirst { it.trim() == "## $version" || it.trim().startsWith("## $version ") }
+    check(start >= 0) { "CHANGELOG.md has no \"## $version\" section" }
+    val end = (start + 1 until lines.size).firstOrNull { lines[it].startsWith("## ") } ?: lines.size
+    return lines.subList(start + 1, end).joinToString("\n").trim()
+}
+
+// Before anything is uploaded for real: the jar is built and tested, the commit is the tagged
+// release of this version, nothing is left uncommitted, and there is somewhere to publish to.
+val checkRelease = tasks.register("checkRelease") {
+    group = "publishing"
+    description = "Checks the checkout is the tagged, clean release of this version before publishing."
+    dependsOn("build")
+    val tags = providers.exec { commandLine("git", "tag", "--points-at", "HEAD") }.standardOutput.asText
+    val status = providers.exec { commandLine("git", "status", "--porcelain") }.standardOutput.asText
+    val platforms = modrinthId.isNotEmpty() || curseforgeId.isNotEmpty()
+    val version = modVersion
+    doLast {
+        check(platforms) { "No platform to publish to: set publish.modrinth or publish.curseforge in stonecutter.properties.toml" }
+        check("v$version" in tags.get().lines().map { it.trim() }) {
+            "HEAD is not tagged v$version. Tag the release commit first: git tag -a v$version -m \"Kolobok $version\""
+        }
+        check(status.get().isBlank()) { "The checkout has uncommitted changes; publish from a clean one" }
+        changelogFor(version)
+    }
+}
+
+if (!isDryRun) {
+    tasks.named("publishMods") { dependsOn(checkRelease) }
+    tasks.withType<me.modmuss50.mpp.PublishModTask>().configureEach { dependsOn(checkRelease) }
 }

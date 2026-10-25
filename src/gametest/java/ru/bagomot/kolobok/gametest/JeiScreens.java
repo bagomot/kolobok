@@ -49,4 +49,16 @@ final class JeiScreens {
         context.takeScreenshot("guide-jei-03-hints");
         context.setScreen(() -> null);
     }
+
+    /** The stove's category for the README, see {@link ShowcaseVisualTest}. */
+    static void showcase(ClientGameTestContext context) {
+        IJeiRuntime runtime = context.computeOnClient(mc -> JeiRuntime.get());
+        if (runtime == null) {
+            throw new AssertionError("JEI is installed but gave no runtime");
+        }
+        context.runOnClient(mc -> runtime.getRecipesGui().showTypes(List.of(KolobokJeiPlugin.STOVE)));
+        context.waitTicks(10);
+        ShowcaseVisualTest.shot(context, "jei");
+        context.setScreen(() -> null);
+    }
 }
