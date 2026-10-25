@@ -1,0 +1,28 @@
+{
+  "criteria": {
+    "root": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "kolobok:rolling_pin"
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "kolobok:rolling_pin"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.root.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.root.description"
+    },
+    "background": "minecraft:block/spruce_planks",
+    "show_toast": false,
+    "announce_to_chat": false
+  }
+}

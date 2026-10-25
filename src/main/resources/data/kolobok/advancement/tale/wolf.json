@@ -1,0 +1,23 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "wolf": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "verse",
+        "mob": "minecraft:wolf"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bone"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.wolf.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.wolf.description"
+    }
+  }
+}

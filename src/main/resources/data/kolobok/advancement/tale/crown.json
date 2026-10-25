@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "crown": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "crown"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "kolobok:crown"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.crown.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.crown.description"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "parent": "kolobok:tale/chicken_jockey",
+  "criteria": {
+    "lava_chicken": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "lava_chicken"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:lava_bucket"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.lava_chicken.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.lava_chicken.description"
+    },
+    "frame": "challenge"
+  },
+  "rewards": {
+    "experience": 50
+  }
+}

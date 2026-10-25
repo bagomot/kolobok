@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/ran_away",
+  "criteria": {
+    "sour_cream": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "sour_cream"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:milk_bucket"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.sour_cream.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.sour_cream.description"
+    }
+  }
+}

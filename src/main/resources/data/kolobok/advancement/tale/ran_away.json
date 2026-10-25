@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/into_the_oven",
+  "criteria": {
+    "ran_away": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "ran_away"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "kolobok:kolobok_spawn_egg"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.ran_away.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.ran_away.description"
+    }
+  }
+}

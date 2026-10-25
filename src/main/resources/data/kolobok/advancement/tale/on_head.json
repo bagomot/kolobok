@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "on_head": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "on_head"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bread"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.on_head.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.on_head.description"
+    }
+  }
+}

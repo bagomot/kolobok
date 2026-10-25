@@ -1,0 +1,26 @@
+{
+  "parent": "kolobok:tale/wolf",
+  "criteria": {
+    "sigma": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "verse",
+        "count": {
+          "min": 10
+        }
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:tinted_glass"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.sigma.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.sigma.description"
+    },
+    "frame": "goal"
+  }
+}

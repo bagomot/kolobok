@@ -17,6 +17,9 @@ import net.minecraft.world.level.block.BeetrootBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
+import ru.bagomot.kolobok.advancement.Tale;
+import ru.bagomot.kolobok.advancement.TaleTrigger;
+import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.ai.CatOnStoveGoal;
 import ru.bagomot.kolobok.entity.ai.Goals;
@@ -36,6 +39,8 @@ public final class KolobokEvents {
     /** «Репка»: the dog, the cat and Kolobok must be this close to the beetroot. */
     private static final double REPKA_RANGE = 6.0;
     private static final int REPKA_BEETROOTS = 6;
+    /** Kolobki this close to a petted dog may see it. */
+    private static final double JEALOUS_LOOK = 8.0;
 
     private KolobokEvents() {
     }
@@ -66,11 +71,26 @@ public final class KolobokEvents {
     }
 
     /**
+     * A player used something on an entity: his own dog petted where his Kolobok can see it makes the
+     * Kolobok jealous. Only looks; the interaction goes ahead as it would.
+     */
+    public static void onEntityInteract(Player player, Entity target) {
+        if (player.level().isClientSide() || !(target instanceof Wolf dog) || !dog.isTame() || !dog.isOwnedBy(player)) {
+            return;
+        }
+        for (KolobokEntity kolobok : player.level().getEntitiesOfClass(KolobokEntity.class, dog.getBoundingBox().inflate(JEALOUS_LOOK),
+                kolobok -> kolobok.isTame() && kolobok.isOwnedBy(player))) {
+            kolobok.sawDogPetted(dog);
+        }
+    }
+
+    /**
      * «Тянут-потянут»: a player picks ripe beetroot with his own dog, cat and Kolobok close by, and six
      * more beetroots come up with it, as the turnip did for the whole family.
      */
     public static void onBlockBroken(Level level, Player player, BlockPos pos, BlockState state) {
-        if (level.isClientSide() || !(state.getBlock() instanceof BeetrootBlock crop) || !crop.isMaxAge(state)) {
+        if (level.isClientSide() || !KConfig.server().repka || !(state.getBlock() instanceof BeetrootBlock crop)
+                || !crop.isMaxAge(state)) {
             return;
         }
         AABB around = new AABB(pos).inflate(REPKA_RANGE);
@@ -81,6 +101,7 @@ public final class KolobokEvents {
         if (dog && cat && !kolobki.isEmpty()) {
             Block.popResource(level, pos, new ItemStack(Items.BEETROOT, REPKA_BEETROOTS));
             kolobki.getFirst().say("repka");
+            TaleTrigger.award(player, Tale.REPKA);
         }
     }
 

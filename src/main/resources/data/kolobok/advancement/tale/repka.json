@@ -1,0 +1,23 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "repka": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "repka"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:beetroot"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.repka.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.repka.description"
+    },
+    "frame": "goal"
+  }
+}

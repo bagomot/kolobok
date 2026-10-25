@@ -13,6 +13,7 @@ import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KRecipes;
 import ru.bagomot.kolobok.registry.KSounds;
 import ru.bagomot.kolobok.registry.KTabs;
+import ru.bagomot.kolobok.registry.KTriggers;
 
 /**
  * Common entry point. Each loader's entry class hands over its {@link Platform} and then feeds the
@@ -51,6 +52,7 @@ public final class Kolobok {
         KComponents.init();
         KItems.init();
         KRecipes.init();
+        KTriggers.init();
         KTabs.init();
         KConfig.loadServer(loader.configDirectory());
         LOG.info("Kolobok on {}: жили-были", loader.platformName());

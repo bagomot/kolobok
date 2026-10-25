@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "bite": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "bite"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bowl"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.bite.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.bite.description"
+    }
+  }
+}

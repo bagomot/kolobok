@@ -4,6 +4,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.UUIDUtil;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
@@ -50,6 +51,8 @@ import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.level.storage.loot.providers.number.ints.ResolvableInt;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import ru.bagomot.kolobok.advancement.Tale;
+import ru.bagomot.kolobok.advancement.TaleTrigger;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Variant;
 import ru.bagomot.kolobok.item.DoughItem;
@@ -63,6 +66,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.WeakHashMap;
 
 /**
@@ -111,6 +115,8 @@ public class StoveBlockEntity extends BlockEntity {
     private int burn;
     /** Lava or a blaze rod went in for heat: the Kolobok baking now comes out burnt. */
     private boolean tooHot;
+    /** Who put the raw Kolobok in, for the tale's advancements. */
+    private @Nullable UUID baker;
     /** When the fire last burned, for the warmth. */
     private long lastBurned = Long.MIN_VALUE / 2;
 
@@ -320,9 +326,9 @@ public class StoveBlockEntity extends BlockEntity {
             return;
         }
         Vec3 spot = StovePattern.gornilo(worldPosition, facing);
-        int cool = StovePattern.hasWindow(level, worldPosition, facing) ? COOL_TICKS_BY_WINDOW : COOL_TICKS;
+        boolean window = StovePattern.hasWindow(level, worldPosition, facing);
         kolobok.snapTo(spot.x, spot.y, spot.z, facing.toYRot(), 0.0F);
-        kolobok.bake(variant(level), tooHot, worldPosition, cool);
+        kolobok.bake(variant(level), tooHot, worldPosition, window ? COOL_TICKS_BY_WINDOW : COOL_TICKS, baker, window);
         Component name = oven.get(DataComponents.CUSTOM_NAME);
         if (name != null) {
             kolobok.setCustomName(name);
@@ -331,6 +337,7 @@ public class StoveBlockEntity extends BlockEntity {
         level.playSound(null, spot.x, spot.y, spot.z, SoundEvents.FIRE_EXTINGUISH, SoundSource.BLOCKS, 0.4F, 1.4F);
         oven = ItemStack.EMPTY;
         tooHot = false;
+        baker = null;
     }
 
     private Variant variant(ServerLevel level) {
@@ -489,7 +496,9 @@ public class StoveBlockEntity extends BlockEntity {
         cooked = false;
         progress = 0;
         total = BAKE_TICKS;
+        baker = player.getUUID();
         playSound(SoundEvents.SLIME_BLOCK_PLACE, 0.8F);
+        TaleTrigger.award(player, Tale.INTO_THE_OVEN);
         return null;
     }
 
@@ -738,6 +747,7 @@ public class StoveBlockEntity extends BlockEntity {
         total = input.getIntOr("total", 0);
         burn = input.getIntOr("burn", 0);
         tooHot = input.getBooleanOr("too_hot", false);
+        baker = input.read("baker", UUIDUtil.CODEC).orElse(null);
         lastBurned = input.getLongOr("last_burned", Long.MIN_VALUE / 2);
         syncedAt = level != null ? level.getGameTime() : 0L;
     }
@@ -754,6 +764,7 @@ public class StoveBlockEntity extends BlockEntity {
         output.putInt("total", total);
         output.putInt("burn", burn);
         output.putBoolean("too_hot", tooHot);
+        output.storeNullable("baker", UUIDUtil.CODEC, baker);
         output.putLong("last_burned", lastBurned);
     }
 }

@@ -40,6 +40,7 @@ public final class KConfig {
 
     public static void loadServer(Path configDir) {
         server = load(configDir.resolve(Kolobok.MOD_ID).resolve("server.json"), Server.class, new Server());
+        server.clamp();
     }
 
     public static void loadClient(Path configDir) {
@@ -79,6 +80,26 @@ public final class KConfig {
         public boolean foxHunting = true;
         /** A tamed Kolobok now and then runs off from his owner to sing to animals, and comes back. */
         public boolean escapades = true;
+        /** A mob that has just hit his owner, he draws onto himself: «Эй, я вкуснее!» */
+        public boolean luring = true;
+        /** Now and then his song annoys a mob close by into going for him. */
+        public boolean annoyingSong = true;
+        /** A hungry owner may bite his sitting Kolobok. */
+        public boolean biting = true;
+        /** Now and then he jumps on a chicken and rides it. */
+        public boolean chickenJockey = true;
+        /** «Тянут-потянут»: ripe beetroot picked with one's dog, cat and Kolobok about gives six more. */
+        public boolean repka = true;
+        /** Game days without milk before he goes stale; 0, never. */
+        public int staleDays = 3;
+        /** «Покажи дорогу» looks for a village this many chunks off at most, as a dolphin looks for treasure. */
+        public int guideSearchChunks = 50;
+
+        void clamp() {
+            tameChanceDenominator = Math.max(1, tameChanceDenominator);
+            staleDays = Math.clamp(staleDays, 0, 1000);
+            guideSearchChunks = Math.clamp(guideSearchChunks, 1, 100);
+        }
     }
 
     /** How Kolobok talks to this player. */

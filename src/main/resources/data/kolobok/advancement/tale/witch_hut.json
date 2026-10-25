@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "witch_hut": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "witch_hut"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:cauldron"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.witch_hut.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.witch_hut.description"
+    }
+  }
+}

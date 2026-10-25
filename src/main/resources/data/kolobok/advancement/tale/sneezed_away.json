@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/helmet",
+  "criteria": {
+    "sneezed_away": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "sneezed_away"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:feather"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.sneezed_away.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.sneezed_away.description"
+    }
+  }
+}

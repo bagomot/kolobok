@@ -4,9 +4,12 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
+import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.event.KolobokEvents;
@@ -30,6 +33,12 @@ public final class KolobokFabric implements ModInitializer {
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> KolobokEvents.allowDamage(entity, source));
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) ->
                 KolobokEvents.onBlockBroken(level, player, pos, state));
+        UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
+            if (hand == InteractionHand.MAIN_HAND) {
+                KolobokEvents.onEntityInteract(player, entity);
+            }
+            return InteractionResult.PASS;
+        });
     }
 
     private static <T> void registerAll(KRegistry<T> catalogue) {

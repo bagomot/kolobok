@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/into_the_oven",
+  "criteria": {
+    "by_the_window": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "by_the_window"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:glass_pane"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.by_the_window.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.by_the_window.description"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "parent": "kolobok:tale/stove",
+  "criteria": {
+    "dough": {
+      "trigger": "minecraft:inventory_changed",
+      "conditions": {
+        "items": [
+          {
+            "items": "kolobok:dough"
+          }
+        ]
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "kolobok:dough"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.dough.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.dough.description"
+    }
+  }
+}

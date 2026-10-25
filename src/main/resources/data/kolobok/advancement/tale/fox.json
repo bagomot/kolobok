@@ -1,0 +1,23 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "fox": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "fox_rescue"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:sweet_berries"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.fox.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.fox.description"
+    },
+    "frame": "goal"
+  }
+}

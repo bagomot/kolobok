@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/root",
+  "criteria": {
+    "stove": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "stove_built"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:bricks"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.stove.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.stove.description"
+    }
+  }
+}

@@ -23,6 +23,8 @@ import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.HitResult;
 import ru.bagomot.kolobok.Kolobok;
+import ru.bagomot.kolobok.advancement.Tale;
+import ru.bagomot.kolobok.advancement.TaleTrigger;
 import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.block.StovePattern;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -106,6 +108,7 @@ public class RollingPinItem extends Item {
                         24, box.getXsize() / 3, box.getYsize() / 3, box.getZsize() / 3, 0.02);
                 level.playSound(null, pos, SoundEvents.VILLAGER_WORK_MASON, SoundSource.BLOCKS, 1.0F, 1.0F);
                 player.sendOverlayMessage(Component.translatable("kolobok.stove.built"));
+                TaleTrigger.award(player, Tale.STOVE_BUILT);
             }
             case MISSING_BRICKS -> player.sendOverlayMessage(Component.translatable("kolobok.stove.missing_bricks"));
             case BURNING -> player.sendOverlayMessage(Component.translatable("kolobok.stove.furnace_burning"));

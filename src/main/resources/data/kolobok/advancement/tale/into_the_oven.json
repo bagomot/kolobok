@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/dough",
+  "criteria": {
+    "into_the_oven": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "into_the_oven"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "kolobok:raw_kolobok"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.into_the_oven.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.into_the_oven.description"
+    }
+  }
+}

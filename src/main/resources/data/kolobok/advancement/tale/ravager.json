@@ -1,0 +1,27 @@
+{
+  "parent": "kolobok:tale/sigma",
+  "criteria": {
+    "ravager": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "verse",
+        "mob": "minecraft:ravager"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:saddle"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.ravager.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.ravager.description"
+    },
+    "frame": "challenge"
+  },
+  "rewards": {
+    "experience": 50
+  }
+}

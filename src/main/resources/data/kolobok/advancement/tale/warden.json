@@ -1,0 +1,27 @@
+{
+  "parent": "kolobok:tale/sigma",
+  "criteria": {
+    "warden": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "verse",
+        "mob": "minecraft:warden"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:sculk_sensor"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.warden.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.warden.description"
+    },
+    "frame": "challenge"
+  },
+  "rewards": {
+    "experience": 50
+  }
+}

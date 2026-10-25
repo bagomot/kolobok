@@ -1,0 +1,25 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "concert": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "concert",
+        "count": {
+          "min": 6
+        }
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:note_block"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.concert.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.concert.description"
+    }
+  }
+}

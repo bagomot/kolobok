@@ -5,6 +5,7 @@ import net.fabricmc.fabric.api.client.gametest.v1.TestInput;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
@@ -15,6 +16,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.block.StoveBlockEntity;
 import ru.bagomot.kolobok.block.StovePart;
 import ru.bagomot.kolobok.block.StovePartBlock;
@@ -86,6 +88,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
                     throw new AssertionError("The rolling pin did not build the stove");
                 }
             });
+            earned(server, "root", "stove");
             server.runCommand(VIEW);
             context.waitTicks(10);
             context.takeScreenshot("stove-02-built");
@@ -105,6 +108,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
                     throw new AssertionError("Logs or the raw Kolobok missing, or lit by itself: " + stove.status().getString());
                 }
             });
+            earned(server, "into_the_oven");
             // Flint and steel in the горнило lights it.
             server.runCommand("item replace entity @a weapon.mainhand with minecraft:flint_and_steel");
             context.waitTicks(2);
@@ -151,6 +155,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
             waitFor(context, server, 750, "him to cool and hop out", s -> baked(s).getKState() == KState.RUNAWAY);
             context.waitTicks(12);
             check(server, "out of the горнило", k -> k.position().distanceTo(StovePattern.gornilo(MOUTH, FACING)) > 0.5);
+            earned(server, "by_the_window", "ran_away");
             context.waitTicks(10);
             context.takeScreenshot("stove-07-cooled");
 
@@ -190,6 +195,7 @@ public final class StoveVisualTest implements FabricClientGameTest {
             input.pressKey(options -> options.keyUse);
             context.waitTicks(6);
             check(server, "tamed", k -> k.isTame() && k.getKState() == KState.FOLLOW);
+            earned(server, "sour_cream", "tame");
             context.takeScreenshot("stove-10-tamed");
 
             // The rolling pin: follow → crumbs → guard → wander → follow.
@@ -327,6 +333,19 @@ public final class StoveVisualTest implements FabricClientGameTest {
                 return k.getKState() + " " + k.getMood() + " tame=" + k.isTame() + " say=" + k.getSayKey();
             });
             throw new AssertionError("Expected him " + what + ", got " + state);
+        }
+    }
+
+    /** «Сказка о Колобке»: those advancements are done by now. */
+    private static void earned(TestServerContext server, String... names) {
+        for (String name : names) {
+            boolean done = server.computeOnServer(s -> {
+                AdvancementHolder holder = s.getAdvancements().get(Kolobok.id("tale/" + name));
+                return holder != null && player(s).getAdvancements().getOrStartProgress(holder).isDone();
+            });
+            if (!done) {
+                throw new AssertionError("The advancement tale/" + name + " should be done by now");
+            }
         }
     }
 

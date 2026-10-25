@@ -1,0 +1,25 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "strike": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "bowled",
+        "count": {
+          "min": 10
+        }
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:target"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.strike.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.strike.description"
+    }
+  }
+}

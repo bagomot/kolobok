@@ -1,0 +1,23 @@
+{
+  "parent": "kolobok:tale/helmet",
+  "criteria": {
+    "kladenets": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "kladenets"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:wooden_sword"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.kladenets.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.kladenets.description"
+    },
+    "frame": "goal"
+  }
+}

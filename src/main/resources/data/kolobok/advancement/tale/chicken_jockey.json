@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "chicken_jockey": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "chicken_jockey"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:egg"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.chicken_jockey.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.chicken_jockey.description"
+    }
+  }
+}

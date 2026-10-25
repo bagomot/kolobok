@@ -1,0 +1,29 @@
+{
+  "parent": "kolobok:tale/sour_cream",
+  "criteria": {
+    "tame": {
+      "trigger": "minecraft:tame_animal",
+      "conditions": {
+        "entity": {
+          "type": "minecraft:entity_properties",
+          "entity": "this",
+          "predicate": {
+            "minecraft:entity_type": "kolobok:kolobok"
+          }
+        }
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "kolobok:songbook"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.tame.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.tame.description"
+    },
+    "frame": "goal"
+  }
+}

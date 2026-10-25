@@ -3,6 +3,7 @@ package ru.bagomot.kolobok.entity.ai;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.GoalSelector;
+import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import ru.bagomot.kolobok.mixin.MobAccessor;
 
 /**
@@ -27,6 +28,22 @@ public final class Goals {
      */
     public static boolean runsOnGoals(Mob mob) {
         return !goals(mob).getAvailableGoals().isEmpty();
+    }
+
+    /**
+     * Holds the mob still for a tick: its goals stop walking it about and turning its head, so that
+     * where it is sent and what it is told to look at hold. The mob gives the flags back to its goals
+     * by itself every five ticks, so whoever holds it does so every tick.
+     */
+    public static void hold(Mob mob) {
+        GoalSelector selector = goals(mob);
+        for (WrappedGoal goal : selector.getAvailableGoals()) {
+            if (goal.isRunning() && (goal.getFlags().contains(Goal.Flag.MOVE) || goal.getFlags().contains(Goal.Flag.LOOK))) {
+                goal.stop();
+            }
+        }
+        selector.disableControlFlag(Goal.Flag.MOVE);
+        selector.disableControlFlag(Goal.Flag.LOOK);
     }
 
     /**

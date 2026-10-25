@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "tan": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "tan"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:campfire"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.tan.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.tan.description"
+    }
+  }
+}

@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import org.junit.jupiter.api.Test;
+import ru.bagomot.kolobok.advancement.Tale;
 import ru.bagomot.kolobok.block.StovePart;
 import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Perk;
@@ -308,6 +309,61 @@ class ResourcesTest {
         }
     }
 
+    /**
+     * «Сказка о Колобке»: one tab growing from one root, every advancement titled and described in
+     * both languages, with an icon that exists, and every event of the tale both told by the code and
+     * waited for by an advancement.
+     */
+    @Test
+    void theTaleAdvancementsHangTogether() throws IOException {
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        Path dir = sourceDir("src/main/resources").resolve("data/kolobok/advancement/tale");
+        Set<String> names = new TreeSet<>();
+        try (var files = Files.list(dir)) {
+            files.forEach(file -> names.add(file.getFileName().toString().replace(".json", "")));
+        }
+        assertTrue(names.size() >= 27, "found only " + names);
+        Set<String> awaited = new TreeSet<>();
+        int roots = 0;
+        for (String name : names) {
+            JsonObject advancement = json("data/kolobok/advancement/tale/" + name + ".json");
+            if (advancement.has("parent")) {
+                String parent = advancement.get("parent").getAsString();
+                assertTrue(parent.startsWith("kolobok:tale/") && names.contains(parent.substring("kolobok:tale/".length())),
+                        name + " hangs from " + parent);
+            } else {
+                roots++;
+                assertTrue(advancement.getAsJsonObject("display").has("background"), "the root draws the tab");
+            }
+            JsonObject display = advancement.getAsJsonObject("display");
+            for (String part : List.of("title", "description")) {
+                String key = display.getAsJsonObject(part).get("translate").getAsString();
+                assertTrue(ru.has(key) && en.has(key), key);
+            }
+            String icon = display.getAsJsonObject("icon").get("id").getAsString();
+            if (icon.startsWith("kolobok:")) {
+                json("assets/kolobok/items/" + icon.substring("kolobok:".length()) + ".json");
+            }
+            for (var criterion : advancement.getAsJsonObject("criteria").entrySet()) {
+                JsonObject value = criterion.getValue().getAsJsonObject();
+                if (value.get("trigger").getAsString().equals("kolobok:tale")) {
+                    String event = value.getAsJsonObject("conditions").get("event").getAsString();
+                    assertTrue(java.util.Arrays.stream(Tale.values()).anyMatch(t -> t.getSerializedName().equals(event)),
+                            name + " waits for no such event: " + event);
+                    awaited.add(event);
+                }
+            }
+        }
+        assertEquals(1, roots, "one tab");
+        String code = source("entity/KolobokEntity.java") + source("event/KolobokEvents.java")
+                + source("block/StoveBlockEntity.java") + source("item/RollingPinItem.java");
+        for (Tale event : Tale.values()) {
+            assertTrue(awaited.contains(event.getSerializedName()), "no advancement waits for " + event);
+            assertTrue(code.contains("Tale." + event.name()), "the code never tells " + event);
+        }
+    }
+
     private static void texture(String path) throws IOException {
         try (InputStream png = resource("assets/kolobok/textures/" + path + ".png")) {
             assertNotNull(png, path);
@@ -343,10 +399,17 @@ class ResourcesTest {
      *         whichever build node the tests run in
      */
     private static String source(String path) throws IOException {
+        return Files.readString(sourceDir("src/main/java/ru/bagomot/kolobok").resolve(path));
+    }
+
+    /**
+     * @return that directory of the project, found from whichever build node the tests run in
+     */
+    private static Path sourceDir(String path) throws IOException {
         for (Path dir = Path.of("").toAbsolutePath(); dir != null; dir = dir.getParent()) {
-            Path file = dir.resolve("src/main/java/ru/bagomot/kolobok").resolve(path);
-            if (Files.exists(file)) {
-                return Files.readString(file);
+            Path found = dir.resolve(path);
+            if (Files.isDirectory(found)) {
+                return found;
             }
         }
         throw new IOException("no " + path);

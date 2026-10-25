@@ -1,0 +1,22 @@
+{
+  "parent": "kolobok:tale/tame",
+  "criteria": {
+    "helmet": {
+      "trigger": "kolobok:tale",
+      "conditions": {
+        "event": "helmet"
+      }
+    }
+  },
+  "display": {
+    "icon": {
+      "id": "minecraft:iron_helmet"
+    },
+    "title": {
+      "translate": "advancements.kolobok.tale.helmet.title"
+    },
+    "description": {
+      "translate": "advancements.kolobok.tale.helmet.description"
+    }
+  }
+}
