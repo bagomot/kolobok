@@ -7,7 +7,7 @@ Each release puts two jars, one for NeoForge and one for Fabric, built from the 
 1. Create the project on Modrinth and on CurseForge, and put their project ids (shown on each project's page) into `stonecutter.properties.toml`: `publish.modrinth` and `publish.curseforge`. A platform left empty is skipped; with both empty, a release goes to GitHub only.
 2. Get the tokens: a Modrinth personal access token with the "Create versions" scope, and a CurseForge API token from the account's API tokens page.
 3. Keep the tokens out of the repository:
-   - to publish from your machine, copy `.env.example` to `.env` (git-ignored) and fill it in, or set `MODRINTH_TOKEN` and `CURSEFORGE_TOKEN` in the environment;
+   - to publish from your machine, put them into a git-ignored `.env` file in the project root as `MODRINTH_TOKEN=…` and `CURSEFORGE_TOKEN=…` lines, or set `MODRINTH_TOKEN` and `CURSEFORGE_TOKEN` in the environment;
    - to publish from GitHub, add the same two names as the repository's Actions secrets.
 
 ## Every release

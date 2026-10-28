@@ -38,7 +38,6 @@ kolobok_plan.html
 # Local overrides and secrets: publishing tokens live in .env or the environment, never here.
 .env
 .env.*
-!.env.example
 *.token
 secrets.properties
 local.properties
@@ -47,5 +46,5 @@ local.properties
 # Local documentation, kept out of the repository
 doc/
 
-# Voice renderer's npm packages
-tools/voice/node_modules/
+# The asset generators and the logo's, and the example .env: kept locally, out of the repository
+tools/
