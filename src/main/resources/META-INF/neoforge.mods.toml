@@ -1,12 +1,14 @@
 modLoader = "javafml"
 loaderVersion = "[4,)"
 license = "${mod_license}"
+issueTrackerURL = "${mod_sources}/issues"
 
 [[mods]]
 modId = "${mod_id}"
 version = "${mod_version}"
 displayName = "${mod_name}"
 authors = "${mod_author}"
+displayURL = "${mod_sources}"
 description = '''${mod_description}'''
 iconFile = "assets/${mod_id}/icon.png"
 

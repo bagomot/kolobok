@@ -25,6 +25,7 @@ val modName = prop("mod.name")
 val modVersion = prop("mod.version")
 val modAuthor = prop("mod.author")
 val modLicense = prop("mod.license")
+val modSources = prop("mod.sources")
 val modDescription = prop("mod.description")
 val javaVersion = prop("java.version")
 val minecraftRange = prop("deps.minecraft_range")
@@ -172,6 +173,7 @@ tasks.named<ProcessResources>("processResources") {
         "mod_name" to modName,
         "mod_author" to modAuthor,
         "mod_license" to modLicense,
+        "mod_sources" to modSources,
         "mod_description" to modDescription,
         "mod_version" to modVersion,
         "java_version" to javaVersion,
@@ -269,18 +271,17 @@ fun changelogFor(version: String): String {
     return lines.subList(start + 1, end).joinToString("\n").trim()
 }
 
-// Before anything is uploaded for real: the jar is built and tested, the commit is the tagged
-// release of this version, nothing is left uncommitted, and there is somewhere to publish to.
+// Before anything is released for real: the jar is built and tested, the commit is the tagged
+// release of this version, and nothing is left uncommitted. The Release workflow runs it before
+// the GitHub release too, which needs no platform at all.
 val checkRelease = tasks.register("checkRelease") {
     group = "publishing"
     description = "Checks the checkout is the tagged, clean release of this version before publishing."
     dependsOn("build")
     val tags = providers.exec { commandLine("git", "tag", "--points-at", "HEAD") }.standardOutput.asText
     val status = providers.exec { commandLine("git", "status", "--porcelain") }.standardOutput.asText
-    val platforms = modrinthId.isNotEmpty() || curseforgeId.isNotEmpty()
     val version = modVersion
     doLast {
-        check(platforms) { "No platform to publish to: set publish.modrinth or publish.curseforge in stonecutter.properties.toml" }
         check("v$version" in tags.get().lines().map { it.trim() }) {
             "HEAD is not tagged v$version. Tag the release commit first: git tag -a v$version -m \"Kolobok $version\""
         }
@@ -292,4 +293,14 @@ val checkRelease = tasks.register("checkRelease") {
 if (!isDryRun) {
     tasks.named("publishMods") { dependsOn(checkRelease) }
     tasks.withType<me.modmuss50.mpp.PublishModTask>().configureEach { dependsOn(checkRelease) }
+}
+
+// With no project id at all there is nothing to upload: the release is checked and the jar built,
+// which is all the GitHub release needs, and publishMods says so rather than failing.
+if (modrinthId.isEmpty() && curseforgeId.isEmpty()) {
+    tasks.named("publishMods") {
+        doLast {
+            logger.warn("No platform to publish to: publish.modrinth and publish.curseforge are empty in stonecutter.properties.toml")
+        }
+    }
 }

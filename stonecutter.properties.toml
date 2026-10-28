@@ -9,10 +9,11 @@
 mod.id = "kolobok"
 mod.name = "Kolobok"
 mod.group = "ru.bagomot.kolobok"
-mod.version = "1.2.0"
+mod.version = "1.3.0"
 mod.license = "MIT"
 mod.author = "Bagomot"
-mod.description = "Колобок из русской сказки: печётся в русской печи, ходит за хозяином, поёт и уходит от всех. A bread pet from the Russian fairy tale."
+mod.sources = "https://github.com/bagomot/kolobok"
+mod.description = "Колобок из восточнославянской сказки: печётся в русской печи, ходит за хозяином, поёт и уходит от всех. A bread pet from the East Slavic fairy tale."
 
 java.version = "25"
 

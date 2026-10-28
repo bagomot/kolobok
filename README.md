@@ -2,9 +2,9 @@
 
 ![Kolobok](src/main/resources/assets/kolobok/icon.png)
 
-A Minecraft mod about Kolobok, the round loaf from the Russian fairy tale who rolled away from grandma and grandpa, the hare, the wolf and the bear, singing his song as he went. Here you bake him yourself in a Russian stove, win him over by hearing his song out, and take him along: he rides on your shoulder, sings, jokes, gets into trouble and runs from everyone who wants to eat him. Mind the fox.
+A Minecraft mod about Kolobok, the round loaf from the East Slavic fairy tale who rolled away from grandma and grandpa, the hare, the wolf and the bear, singing his song as he went. Here you bake him yourself in a Russian stove, win him over by hearing his song out, and take him along: he rides on your shoulder, sings, jokes, gets into trouble and runs from everyone who wants to eat him. Mind the fox.
 
-For Minecraft 26.3 on NeoForge and Fabric. English and Russian.
+For Minecraft 26.3 on NeoForge and Fabric. English and Russian. The source code is on [GitHub](https://github.com/bagomot/kolobok).
 
 ![Every kind of Kolobok: wheat, Borodinsky rye, golden, lunar and the little Kolobochek](media/screenshots/family.jpg)
 
@@ -99,11 +99,11 @@ Both files are created in `config/kolobok/` on first launch; new settings are ad
 
 - Minecraft 26.3.
 - NeoForge 26.3.0.85 or newer, or Fabric Loader 0.20.0 or newer with [Fabric API](https://modrinth.com/mod/fabric-api).
-- Install the mod on the server and on every client. NeoForge and Fabric each have their own jar: `kolobok-neoforge-26.3-<version>.jar` and `kolobok-fabric-26.3-<version>.jar`.
+- Install the mod on the server and on every client. NeoForge and Fabric each have their own jar: `kolobok-neoforge-26.3-<version>.jar` and `kolobok-fabric-26.3-<version>.jar`, both attached to every [release on GitHub](https://github.com/bagomot/kolobok/releases).
 
 ## Contributing
 
-Ideas, wishes and bug reports are welcome as issues. Fixes, translations and additions are welcome as pull requests; I review every one before it is merged. For a bigger change, open an issue first so we can agree on it.
+Ideas, wishes and bug reports are welcome as [issues](https://github.com/bagomot/kolobok/issues). Fixes, translations and additions are welcome as pull requests; I review every one before it is merged. New content, whether an idea or a pull request, has to keep to Slavic mythology and folklore, where Kolobok comes from. For a bigger change, open an issue first so we can agree on it.
 
 To build from source you need JDK 25:
 

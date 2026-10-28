@@ -1,6 +1,8 @@
-# A pushed tag v<version> releases that version: both jars go to Modrinth and CurseForge (the
-# tokens come from the repository's secrets MODRINTH_TOKEN and CURSEFORGE_TOKEN), then to a GitHub
-# release with the version's CHANGELOG.md section as its notes. See RELEASING.md.
+# A pushed tag v<version> releases that version. The jars are built and tested, and the commit
+# must be the clean, tagged release of that version (checkRelease). Both jars then go to Modrinth
+# and CurseForge, each only when its project id is set in stonecutter.properties.toml (the tokens
+# come from the repository's secrets MODRINTH_TOKEN and CURSEFORGE_TOKEN), and to a GitHub release
+# with the version's CHANGELOG.md section as its notes. See RELEASING.md.
 name: Release
 
 on:
@@ -22,6 +24,8 @@ jobs:
           distribution: temurin
           java-version: 25
       - uses: gradle/actions/setup-gradle@v6
+      - name: Build, test and check the release
+        run: ./gradlew checkRelease
       - name: Publish to Modrinth and CurseForge
         run: ./gradlew publishMods
         env:
@@ -34,5 +38,7 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           notes="$RUNNER_TEMP/notes.md"
           awk -v head="## $version" 'index($0, head) == 1 { on = 1; next } /^## / && on { exit } on' CHANGELOG.md > "$notes"
+          prerelease=()
+          grep -Eq '^publish\.type = "(beta|alpha)"' stonecutter.properties.toml && prerelease=(--prerelease)
           gh release create "$GITHUB_REF_NAME" versions/*/build/libs/*-"$version".jar \
-            --title "Kolobok $version" --notes-file "$notes"
+            --verify-tag --title "Kolobok $version" --notes-file "$notes" "${prerelease[@]}"

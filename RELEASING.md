@@ -1,10 +1,10 @@
 # Releasing
 
-Each release puts two jars on Modrinth and CurseForge, one for NeoForge and one for Fabric, built from the same commit and tagged `v<version>`.
+Each release puts two jars, one for NeoForge and one for Fabric, built from the same commit and tagged `v<version>`, into a GitHub release on [bagomot/kolobok](https://github.com/bagomot/kolobok/releases), and onto Modrinth and CurseForge once their projects are set up.
 
 ## Once
 
-1. Create the project on Modrinth and on CurseForge, and put their project ids (shown on each project's page) into `stonecutter.properties.toml`: `publish.modrinth` and `publish.curseforge`. A platform left empty is skipped; with both empty `publishMods` stops, and the GitHub release is not made either.
+1. Create the project on Modrinth and on CurseForge, and put their project ids (shown on each project's page) into `stonecutter.properties.toml`: `publish.modrinth` and `publish.curseforge`. A platform left empty is skipped; with both empty, a release goes to GitHub only.
 2. Get the tokens: a Modrinth personal access token with the "Create versions" scope, and a CurseForge API token from the account's API tokens page.
 3. Keep the tokens out of the repository:
    - to publish from your machine, copy `.env.example` to `.env` (git-ignored) and fill it in, or set `MODRINTH_TOKEN` and `CURSEFORGE_TOKEN` in the environment;
@@ -20,12 +20,12 @@ Each release puts two jars on Modrinth and CurseForge, one for NeoForge and one 
    ./gradlew publishMods -PdryRun
    ```
 
-4. Commit, then tag the commit: `git tag -a v1.2.0 -m "Kolobok 1.2.0"`.
-5. Publish:
-   - from your machine: `./gradlew publishMods`;
-   - or from GitHub: `git push origin main v1.2.0`. The Release workflow publishes to Modrinth and CurseForge and makes a GitHub release with both jars.
+4. Commit, then tag the commit: `git tag -a v1.3.0 -m "Kolobok 1.3.0"`.
+5. Push the commit and the tag: `git push origin main v1.3.0`. The Release workflow builds and tests both jars, publishes them to Modrinth and CurseForge and makes a GitHub release with both jars and the changelog section as its notes; with `publish.type` beta or alpha the GitHub release is a pre-release. Publish from one place only: the pushed tag uploads to every platform with a project id, so a version also published from your machine with `./gradlew publishMods` would go up twice.
 
-Before uploading, `publishMods` builds and tests both jars and refuses to go on unless HEAD is tagged `v<mod.version>`, the checkout is clean and `CHANGELOG.md` has the version's section.
+Before uploading, `publishMods` and the workflow's `checkRelease` build and test both jars and refuse to go on unless HEAD is tagged `v<mod.version>`, the checkout is clean and `CHANGELOG.md` has the version's section.
+
+The Build workflow builds and tests every push to `main` and every pull request; the jars of each run are in its `kolobok-jars` artifact.
 
 ## Screenshots
 
