@@ -197,7 +197,7 @@ tasks.named<ProcessResources>("processResources") {
 // `./gradlew publishMods` uploads this node's jar, one per loader, to every platform that has a
 // project id in stonecutter.properties.toml. `-PdryRun` goes through it all without uploading and
 // needs no tokens; a real run needs the release commit tagged v<mod.version>, a clean checkout and
-// the tokens. RELEASING.md has the steps.
+// the tokens.
 //
 // Tokens never live in the repository: they come from the environment (MODRINTH_TOKEN,
 // CURSEFORGE_TOKEN; in CI from its secrets) or from a git-ignored .env file in the project root.

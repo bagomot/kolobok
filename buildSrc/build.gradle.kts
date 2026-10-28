@@ -10,6 +10,6 @@ repositories {
 }
 
 dependencies {
-    // Uploads each loader's jar to Modrinth and CurseForge; see RELEASING.md.
+    // Uploads each loader's jar to Modrinth and CurseForge.
     implementation("me.modmuss50:mod-publish-plugin:2.2.1")
 }

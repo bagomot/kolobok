@@ -2,7 +2,7 @@
 # must be the clean, tagged release of that version (checkRelease). Both jars then go to Modrinth
 # and CurseForge, each only when its project id is set in stonecutter.properties.toml (the tokens
 # come from the repository's secrets MODRINTH_TOKEN and CURSEFORGE_TOKEN), and to a GitHub release
-# with the version's CHANGELOG.md section as its notes. See RELEASING.md.
+# with the version's CHANGELOG.md section as its notes.
 name: Release
 
 on:

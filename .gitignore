@@ -46,5 +46,7 @@ local.properties
 # Local documentation, kept out of the repository
 doc/
 
-# The asset generators and the logo's, and the example .env: kept locally, out of the repository
+# The asset generators and the logo's, the example .env and the release steps: kept locally, out of
+# the repository
 tools/
+RELEASING.md

@@ -19,8 +19,9 @@ java.version = "25"
 
 deps.junit = "5.11.4"
 
-# Publishing, `./gradlew publishMods`; see RELEASING.md. Each platform's project id, as its project
-# page shows it; empty skips that platform. The tokens are never kept here (see RELEASING.md).
+# Publishing, `./gradlew publishMods`. Each platform's project id, as its project page shows it;
+# empty skips that platform. The tokens are never kept here: they come from the environment or
+# a git-ignored .env.
 publish.modrinth = ""
 publish.curseforge = ""
 # release, beta or alpha
