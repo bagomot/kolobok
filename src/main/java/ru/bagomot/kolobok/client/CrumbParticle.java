@@ -17,18 +17,26 @@ import net.minecraft.world.item.Items;
  * scrap of its texture, and like it turned to the camera; lying flat, it all but vanished from a few
  * blocks off. It does not move, lasts a minute and fades over its last five seconds. Made and added
  * on the client only, so it needs no particle type of its own.
+ *
+ * <p>A Kolobok leaves at most 48 of them: each crumb knows its number on his trail and goes by itself
+ * once 48 newer ones lie behind it, so nothing has to keep hold of the crumbs to remove them.
  */
 final class CrumbParticle extends SingleQuadParticle {
 
     private static final int LIFETIME = 1200;
     private static final int FADE = 100;
+    private static final int PER_TRAIL = 48;
     private static final ItemStackRenderState SCRATCH = new ItemStackRenderState();
 
     private final float uo;
     private final float vo;
+    private final Trail trail;
+    private final int number;
 
-    CrumbParticle(ClientLevel level, double x, double y, double z) {
+    CrumbParticle(ClientLevel level, double x, double y, double z, Trail trail) {
         super(level, x, y, z, breadSprite(level));
+        this.trail = trail;
+        number = trail.dropped++;
         quadSize = 0.07F + random.nextFloat() * 0.04F;
         // Resting on the ground, not sunk into it to the middle.
         setPos(x, y + quadSize, z);
@@ -59,7 +67,7 @@ final class CrumbParticle extends SingleQuadParticle {
         xo = x;
         yo = y;
         zo = z;
-        if (age++ >= lifetime) {
+        if (age++ >= lifetime || trail.dropped - number > PER_TRAIL) {
             remove();
             return;
         }
@@ -91,5 +99,10 @@ final class CrumbParticle extends SingleQuadParticle {
     @Override
     protected Layer getLayer() {
         return Layer.TRANSLUCENT_ITEMS;
+    }
+
+    /** One Kolobok's trail: how many crumbs he has dropped. The crumbs point to it, never back. */
+    static final class Trail {
+        private int dropped;
     }
 }

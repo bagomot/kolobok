@@ -45,6 +45,8 @@ public final class KSounds {
     /** «Боинг» as he jumps and «шлёп» as he lands. Vanilla samples. */
     public static final KRegistry.Entry<SoundEvent, SoundEvent> BOING = event("boing");
     public static final KRegistry.Entry<SoundEvent, SoundEvent> SPLAT = event("splat");
+    /** Tickled with a feather, he squeaks: his own «и», high. */
+    public static final KRegistry.Entry<SoundEvent, SoundEvent> SQUEAK = event("squeak");
 
     private KSounds() {
     }

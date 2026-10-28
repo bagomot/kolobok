@@ -164,26 +164,34 @@ public class StovePartBlock extends BaseEntityBlock {
 
     // ------------------------------------------------------------------------------------ interaction
 
+    /**
+     * Whatever the hand holds, a click is the stove's, as a furnace's is: an empty main hand goes on to
+     * {@link #useWithoutItem}. Vanilla never lets a spectator click a block; nor does the stove.
+     */
     @Override
     protected InteractionResult useItemOn(ItemStack stack, BlockState state, Level level, BlockPos pos, Player player,
                                           InteractionHand hand, BlockHitResult hit) {
         StoveBlockEntity stove = stoveOf(level, pos, state);
-        if (stove == null) {
+        if (stove == null || player.isSpectator()) {
+            return InteractionResult.PASS;
+        }
+        if (stack.isEmpty()) {
             return InteractionResult.TRY_WITH_EMPTY_HAND;
         }
-        // The fire is lit in the горнило, through the устье: the mouth's block and the one above it.
-        StovePart part = state.getValue(PART);
-        if (StoveBlockEntity.isIgniter(stack) && (part == StovePart.MOUTH || part == StovePart.UPPER_FRONT_MIDDLE)) {
-            return stove.ignite(stack, player, hand);
-        }
-        return stove.useItem(stack, player, hand);
+        return stove.useItem(stack, player, hand, throughMouth(state));
     }
 
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                BlockHitResult hit) {
         StoveBlockEntity stove = stoveOf(level, pos, state);
-        return stove == null ? InteractionResult.PASS : stove.useEmptyHand(player);
+        return stove == null || player.isSpectator() ? InteractionResult.PASS : stove.useEmptyHand(player, throughMouth(state));
+    }
+
+    /** The fire is lit in the горнило, through the устье: the mouth's block and the one above it. */
+    private static boolean throughMouth(BlockState state) {
+        StovePart part = state.getValue(PART);
+        return part == StovePart.MOUTH || part == StovePart.UPPER_FRONT_MIDDLE;
     }
 
     // ------------------------------------------------------------------------------------ removal

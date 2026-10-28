@@ -26,3 +26,32 @@ type = "required"
 versionRange = "${minecraft_range}"
 ordering = "NONE"
 side = "BOTH"
+
+# Soft integrations: never needed, but an older version than the one compiled against is refused.
+[[dependencies.${mod_id}]]
+modId = "jei"
+type = "optional"
+versionRange = "${jei_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "roughlyenoughitems"
+type = "optional"
+versionRange = "${rei_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "jade"
+type = "optional"
+versionRange = "${jade_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "modonomicon"
+type = "optional"
+versionRange = "${modonomicon_range}"
+ordering = "NONE"
+side = "BOTH"

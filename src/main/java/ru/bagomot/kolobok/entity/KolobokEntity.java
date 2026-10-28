@@ -14,6 +14,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -24,7 +25,6 @@ import net.minecraft.tags.BlockTags;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.tags.ItemTags;
-import net.minecraft.tags.StructureTags;
 import net.minecraft.tags.TagKey;
 import net.minecraft.util.Prediction;
 import net.minecraft.world.DifficultyInstance;
@@ -59,10 +59,14 @@ import net.minecraft.world.entity.ai.goal.FloatGoal;
 import net.minecraft.world.entity.ai.goal.FollowOwnerGoal;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
+import net.minecraft.world.entity.ai.goal.MeleeAttackGoal;
+import net.minecraft.world.entity.ai.goal.OcelotAttackGoal;
 import net.minecraft.world.entity.ai.goal.PanicGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
+import net.minecraft.world.entity.ai.goal.RangedAttackGoal;
 import net.minecraft.world.entity.ai.goal.SitWhenOrderedToGoal;
 import net.minecraft.world.entity.ai.goal.WaterAvoidingRandomStrollGoal;
+import net.minecraft.world.entity.ai.goal.WrappedGoal;
 import net.minecraft.world.entity.ai.targeting.TargetingConditions;
 import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.ai.util.LandRandomPos;
@@ -82,11 +86,9 @@ import net.minecraft.world.entity.monster.Creeper;
 import net.minecraft.world.entity.monster.Enemy;
 import net.minecraft.world.entity.monster.Witch;
 import net.minecraft.world.entity.monster.cubemob.MagmaCube;
-import net.minecraft.world.entity.monster.cubemob.Slime;
 import net.minecraft.world.entity.monster.skeleton.AbstractSkeleton;
 import net.minecraft.world.entity.monster.skeleton.WitherSkeleton;
 import net.minecraft.world.entity.npc.InventoryCarrier;
-import net.minecraft.world.entity.npc.villager.AbstractVillager;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
@@ -108,11 +110,10 @@ import net.minecraft.world.level.block.entity.JukeboxBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.levelgen.structure.BuiltinStructures;
-import net.minecraft.world.level.levelgen.structure.Structure;
 import net.minecraft.world.level.levelgen.structure.StructureStart;
-import net.minecraft.world.level.levelgen.structure.placement.RandomSpreadStructurePlacement;
-import net.minecraft.world.level.levelgen.structure.placement.StructurePlacement;
 import net.minecraft.world.level.gameevent.GameEvent;
+import net.minecraft.world.level.material.FluidState;
+import net.minecraft.world.level.portal.TeleportTransition;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.AABB;
@@ -136,9 +137,11 @@ import ru.bagomot.kolobok.entity.song.Syllable;
 import ru.bagomot.kolobok.entity.song.Voice;
 import ru.bagomot.kolobok.item.BindleItem;
 import ru.bagomot.kolobok.item.SongbookItem;
+import ru.bagomot.kolobok.registry.KComponents;
 import ru.bagomot.kolobok.registry.KItems;
 import ru.bagomot.kolobok.registry.KSounds;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -217,6 +220,19 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     public static final int FLAG_SING_HEROBRINE = 1 << 7;
     /** «Это не подгорел, это загар»: fire gave him a tan, and for five minutes he does not burn. */
     public static final int FLAG_TAN = 1 << 8;
+    /** «Не на ту напала»: once got out of a fox's mouth with berries. A flag, so clients know the perk. */
+    public static final int FLAG_FOX_RESCUED = 1 << 9;
+    /** Showing the way: he leaves crumbs on the way there and for half a minute after. */
+    public static final int FLAG_GUIDE_CRUMBS = 1 << 10;
+
+    /** The rolling pin's modes; only from these does a click switch to the next one. */
+    private static final Set<KState> MODES = EnumSet.of(KState.FOLLOW, KState.SIT, KState.GUARD, KState.WANDER);
+
+    /**
+     * Who carries a Kolobok now, by the carrier's id: a player carries one at most. The server-tick
+     * hook moves each after his player, also between levels. Weak, so an unloaded Kolobok is not held.
+     */
+    private static final Map<UUID, WeakReference<KolobokEntity>> CARRIED = new HashMap<>();
 
     /** How long a line stays in the bubble. */
     public static final int SAY_TICKS = 100;
@@ -290,9 +306,9 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private static final float ANNOY_MONSTER = 0.2F;
     private static final float ANNOY_OTHER = 0.05F;
     private static final double ANNOY_RANGE = 8.0;
-    /** An annoyed mob with no attack of its own chases him and butts him for this long… */
-    private static final int BUTT_TICKS = 200;
-    /** …a butt a second at most. */
+    /** An annoyed or lured mob is after him (or his carrier) this long, then lets go… */
+    private static final int PROVOKE_TICKS = 200;
+    /** …one with no attack of its own chases and butts, a butt a second at most. */
     private static final int BUTT_GAP = 20;
     /** He draws a mob off his owner at most every half a minute, from this far. */
     private static final int LURE_GAP = 600;
@@ -303,6 +319,10 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private static final double GET_AWAY_RANGE = 8.0;
     private static final float FEAR_RANGE = 6.0F;
     private static final TagKey<EntityType<?>> SCARES_KOLOBOK = TagKey.create(Registries.ENTITY_TYPE, Kolobok.id("scares_kolobok"));
+    /** His cousins the slimes, whom he greets as kin. */
+    private static final TagKey<EntityType<?>> KOLOBOK_KIN = TagKey.create(Registries.ENTITY_TYPE, Kolobok.id("kolobok_kin"));
+    /** Listeners besides animals, which come by their class: villagers and whatever a data pack adds. */
+    private static final TagKey<EntityType<?>> CONCERT_ANIMALS = TagKey.create(Registries.ENTITY_TYPE, Kolobok.id("concert_animals"));
     /** In a fox's mouth for two minutes at most; then foxes leave him be for a minute. */
     private static final int CAUGHT_TICKS = 2400;
     private static final int FOX_SAFE_TICKS = 1200;
@@ -344,6 +364,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private static final int SNEEZE_ECHO_TICKS = 8;
     private static final int SNEEZE_GAP = 100;
     private static final int GOLOVA_AWAKE_TICKS = 40;
+    /** Tickled, he squeaks at most once a second. */
+    private static final int TICKLE_GAP = 20;
     /** Hit by a player, the Head rolls off about three blocks. */
     private static final double HEAD_ROLL_SPEED = 0.5;
 
@@ -372,9 +394,11 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     /** …and following, rolls back until his owner is this close. */
     private static final double ESCAPADE_HOME = 6.0;
     private static final int ESCAPADE_STUCK_TICKS = 200;
-    /** A song is a concert: animals this close come up and watch, players this close get going. */
+    /** A song is a concert: the animals this close, the nearest few, come up and watch… */
     private static final double CONCERT_RANGE = 8.0;
+    private static final int CONCERT_MAX = 8;
     private static final double CONCERT_SPOT = 2.5;
+    /** …and players this close get going. */
     private static final double CONCERT_PLAYERS = 6.0;
     private static final int CONCERT_SPEED_TICKS = 400;
 
@@ -451,6 +475,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private static final double GUIDE_DISTANCE = 12.0;
     private static final int GUIDE_TICKS = 400;
     private static final int GUIDE_SHOW_TICKS = 60;
+    private static final int GUIDE_CRUMB_TICKS = 600;
 
     /** Now and then — a look every half a minute, one time in eight — he jumps on a chicken this close… */
     private static final int CHICKEN_CHECK = 600;
@@ -525,8 +550,16 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     public float clientHeadScaleO = 1.0F;
 
     private int nextIdleChatter;
+    /** ON_PLAYER: who carries him, server side; unlike the synced entity id it holds across levels. */
+    private @Nullable UUID carrierId;
     private boolean carrierWasShifting;
     private int lastCarrierShiftPress = -100;
+    /** He said he would not jump while his carrier flies; said once a flight. */
+    private boolean refusedDismount;
+    /** Put down in mid-air, with nowhere to land whole: no fall hurts him until he lands. */
+    private boolean softLanding;
+    /** His owner is not on the server: he dozes and keeps to himself. Looked up once a second. */
+    private boolean ownerAway;
 
     /** HOT: ticks until he has cooled. */
     private int hotTicks;
@@ -576,21 +609,20 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     /** A verse was earned: the whole song comes as soon as he can sing it. */
     private boolean newVerseToSing;
     private int nextPhantomWarning;
-    /** Mobs the song annoyed that have no attack of their own: they butt him until this game time. */
-    private final Map<UUID, Long> butting = new HashMap<>();
+    /** Mobs his song or his luring set on him, or on the player he sits on. */
+    private final Map<UUID, Provoked> provoked = new HashMap<>();
     private long nextButt;
     /** Mobs that have had their chance to be annoyed by the current song. */
     private final Set<UUID> heardSong = new HashSet<>();
-    /** The animals watching the current song. */
+    /** The animals watching the current song, and the foxes waiting for its end. */
     private List<Mob> concertListeners = List.of();
+    private List<Fox> waitingFoxes = List.of();
     private int nextLure;
     /** CAUGHT: ticks before he wriggles free himself, and what he goes back to. */
     private int caughtTicks;
     private KState afterCaught = KState.FOLLOW;
     /** Foxes leave him be until this game time. */
     private long foxSafeUntil;
-    /** «Не на ту напала»: once got out of a fox's mouth with berries. */
-    private boolean foxRescued;
     /** Rolling up to a fox: he does not fear it for that while. */
     private boolean curiousAboutFox;
     /** HEAD_ACT: ticks left of the Head's sleep, and what he goes back to after it. */
@@ -600,6 +632,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     /** Awake for a moment after a sneeze, with the Head's moustache. */
     private int golovaAwakeTicks;
     private int nextSneeze;
+    private int nextTickle;
     /** The tick the sneeze's echo is due on, or 0. */
     private int sneezeEcho;
     /** The Head has given away its sword: once per Kolobok. */
@@ -650,6 +683,10 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private Vec3 guideWay = Vec3.ZERO;
     private int guideTicks;
     private int guideShowTicks;
+    /** The crumbs of the way stop at this game time. */
+    private long guideCrumbsUntil;
+    /** Asked again before the day is out, he says what he found the last time. */
+    private String guideAnswer = "guide_tired";
     /** ON_CHICKEN: ticks left of the ride, and what he goes back to. */
     private int chickenTicks;
     private KState afterChicken = KState.FOLLOW;
@@ -809,12 +846,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     }
 
     public boolean hasPerk(Perk perk) {
-        return perk == Perk.FOX ? foxRescued : verses().contains(perk.mob());
+        return perk == Perk.FOX ? hasFlag(FLAG_FOX_RESCUED) : verses().contains(perk.mob());
     }
 
     /**
      * @return what he has learned, in the order he learned it; the fox's perk, which has no verse,
-     *         last. Server side: the fox's perk is not synced.
+     *         last
      */
     public List<Perk> perks() {
         List<Perk> out = new ArrayList<>();
@@ -824,7 +861,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 out.add(perk);
             }
         }
-        if (foxRescued) {
+        if (hasFlag(FLAG_FOX_RESCUED)) {
             out.add(Perk.FOX);
         }
         return out;
@@ -866,7 +903,6 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         output.putInt("CaughtTicks", caughtTicks);
         output.putString("AfterCaught", afterCaught.name());
         output.putLong("FoxSafeUntil", foxSafeUntil);
-        output.putBoolean("FoxRescued", foxRescued);
         output.putBoolean("Kladenets", kladenetsGiven);
         writeInventoryToTag(output);
         output.putLong("NextGuide", nextGuide);
@@ -885,30 +921,15 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         setVariant(Variant.byName(input.getStringOr("Variant", Variant.CLASSIC.serializedName())));
         // Before v0.6 the flags were a byte under another name.
         entityData.set(DATA_FLAGS, input.getIntOr("StateFlags", input.getByteOr("Flags", (byte) 0) & 0xFF));
-        KState fallback = isTame() ? (isOrderedToSit() ? KState.SIT : KState.FOLLOW) : KState.RUNAWAY;
-        KState state;
-        try {
-            state = KState.valueOf(input.getStringOr("State", fallback.name()));
-        } catch (IllegalArgumentException e) {
-            state = fallback;
-        }
-        setKState(state);
+        setKState(readState(input, "State", isTame() ? (isOrderedToSit() ? KState.SIT : KState.FOLLOW) : KState.RUNAWAY));
         hotTicks = input.getIntOr("HotTicks", 0);
         baker = input.read("Baker", UUIDUtil.CODEC).orElse(null);
         byWindow = input.getBooleanOr("ByWindow", false);
         oven = input.read("Oven", BlockPos.CODEC).orElse(null);
         visitTicks = input.getIntOr("VisitTicks", 0);
-        try {
-            afterVisit = KState.valueOf(input.getStringOr("AfterVisit", KState.FOLLOW.name()));
-        } catch (IllegalArgumentException e) {
-            afterVisit = KState.FOLLOW;
-        }
+        afterVisit = readState(input, "AfterVisit", KState.FOLLOW);
         restStove = input.read("RestStove", BlockPos.CODEC).orElse(null);
-        try {
-            afterRest = KState.valueOf(input.getStringOr("AfterRest", KState.FOLLOW.name()));
-        } catch (IllegalArgumentException e) {
-            afterRest = KState.FOLLOW;
-        }
+        afterRest = readState(input, "AfterRest", KState.FOLLOW);
         lastFed = input.getLongOr("LastFed", level().getGameTime());
         guardPost = input.read("GuardPost", BlockPos.CODEC).orElse(null);
         listened.clear();
@@ -917,13 +938,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         entityData.set(DATA_VERSES, SongText.joinVerses(input.read("Verses", Codec.STRING.listOf()).orElse(List.of())));
         newVerseToSing = input.getBooleanOr("NewVerse", false);
         caughtTicks = input.getIntOr("CaughtTicks", CAUGHT_TICKS);
-        try {
-            afterCaught = KState.valueOf(input.getStringOr("AfterCaught", KState.FOLLOW.name()));
-        } catch (IllegalArgumentException e) {
-            afterCaught = KState.FOLLOW;
-        }
+        afterCaught = readState(input, "AfterCaught", KState.FOLLOW);
         foxSafeUntil = input.getLongOr("FoxSafeUntil", 0L);
-        foxRescued = input.getBooleanOr("FoxRescued", false);
+        // In 1.2.0 the fox's perk was saved apart from the flags.
+        if (input.getBooleanOr("FoxRescued", false)) {
+            setFlag(FLAG_FOX_RESCUED, true);
+        }
         kladenetsGiven = input.getBooleanOr("Kladenets", false);
         readInventoryFromTag(input);
         updateCheeks();
@@ -934,11 +954,22 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         bittenDay = input.getLongOr("BittenDay", 0L);
         sulkTicks = input.getIntOr("SulkTicks", 0);
         chickenTicks = input.getIntOr("ChickenTicks", CHICKEN_MIN);
-        afterChicken = "WANDER".equals(input.getStringOr("AfterChicken", "FOLLOW")) ? KState.WANDER : KState.FOLLOW;
+        afterChicken = readState(input, "AfterChicken", KState.FOLLOW) == KState.WANDER ? KState.WANDER : KState.FOLLOW;
         applyPerks();
         applyStale();
         applySoggy();
         applyBite();
+    }
+
+    /**
+     * @return the state saved under that key, or the fallback if there is none or it is unknown
+     */
+    private static KState readState(ValueInput input, String key, KState fallback) {
+        try {
+            return KState.valueOf(input.getStringOr(key, fallback.name()));
+        } catch (IllegalArgumentException e) {
+            return fallback;
+        }
     }
 
     // ------------------------------------------------------------------------------------ spawning
@@ -1067,7 +1098,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     private boolean roams() {
         KState state = getKState();
-        return state == KState.RUNAWAY || state == KState.WANDER || state == KState.FOLLOW;
+        return state == KState.RUNAWAY || (state == KState.WANDER || state == KState.FOLLOW) && !ownerAway;
     }
 
     /**
@@ -1136,6 +1167,9 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             if (strikeDizzyTicks > 0) {
                 strikeDizzyTicks--;
             }
+            if (softLanding && (onGround() || isInLiquid())) {
+                softLanding = false;
+            }
             // A head spinning after a strike or a long chase: stars round it.
             if ((strikeDizzyTicks > 0 || dizzyTicks > 0) && tickCount % 5 == 0) {
                 serverLevel.sendParticles(ParticleTypes.CRIT, getX(), getY() + getBbHeight() + 0.2, getZ(), 2, 0.2, 0.05, 0.2, 0.0);
@@ -1147,7 +1181,23 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             if (getKState() != KState.RUNAWAY) {
                 dizzyTicks = 0;
             }
-            if (tickCount % 20 == 0) {
+            // The once-a-second work, shifted by the id: Kolobki loaded together do not all do it on
+            // the same tick.
+            int phase = tickCount + getId();
+            if (phase % 20 == 0) {
+                ownerAway = isTame() && (getOwnerReference() == null
+                        || serverLevel.getServer().getPlayerList().getPlayer(getOwnerReference().getUUID()) == null);
+                // Only the chicken ride rides a chicken: whatever ended it otherwise, he gets off.
+                if (getVehicle() instanceof Chicken && getKState() != KState.ON_CHICKEN) {
+                    stopRiding();
+                }
+                if (hasFlag(FLAG_GUIDE_CRUMBS) && serverLevel.getGameTime() >= guideCrumbsUntil) {
+                    setFlag(FLAG_GUIDE_CRUMBS, false);
+                }
+                // Whoever baked him was away when he ran off: the tale waits for them.
+                if (baker != null && getKState() != KState.HOT) {
+                    ranAway(serverLevel);
+                }
                 freshnessTick(serverLevel);
                 stateTick(serverLevel);
                 surroundingsTick(serverLevel);
@@ -1165,12 +1215,13 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 pigstepTick(serverLevel);
                 // The new verse waits for someone to sing it to, and for him to get to a stove if he
                 // is on his way.
-                if (newVerseToSing && !isSinging() && !isSheltered() && !goingToStove && hasAudience(serverLevel)) {
+                if (newVerseToSing && !isSinging() && !isSheltered() && !goingToStove && !asleep() && !ownerAway
+                        && hasAudience(serverLevel)) {
                     startSong(0, true);
                 }
             }
-            if (tickCount % 10 == 0) {
-                buttTick(serverLevel);
+            if (phase % 10 == 0) {
+                provokeTick(serverLevel);
             }
             songTick(serverLevel);
             idleSong(serverLevel);
@@ -1200,6 +1251,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             mood = Mood.DIZZY;
         } else if (isPanicking()) {
             mood = Mood.SCARED;
+        } else if (ownerAway) {
+            mood = Mood.SLEEP;
         } else if ((state == KState.RUNAWAY || escapade == Escapade.GOING) && getNavigation().isInProgress()) {
             mood = Mood.SLY;
         } else if (state == KState.SIT && (level().isDarkOutside() || catNap || newMoon())) {
@@ -1228,7 +1281,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             say("golova_dream");
             return;
         }
-        if (getMood() == Mood.SLEEP || isSinging() || isSheltered()) {
+        if (asleep() || isSinging() || isSheltered()) {
             return;
         }
         if (sulkTicks > 0) {
@@ -1236,6 +1289,14 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             return;
         }
         say(getKState() == KState.SIT && level().isDarkOutside() ? "night" : newMoon() && random.nextInt(3) == 0 ? "new_moon" : "idle");
+    }
+
+    /**
+     * @return whether he is asleep: dozing, or dreaming he is the Head
+     */
+    private boolean asleep() {
+        Mood mood = getMood();
+        return mood == Mood.SLEEP || mood == Mood.GOLOVA_SLEEP;
     }
 
     /**
@@ -1274,11 +1335,15 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     /**
      * «Я от бабушки ушёл»: out of the oven and off, away from whoever baked him; cooled by a window, it
-     * was «на окошке стужён» as well.
+     * was «на окошке стужён» as well. If the baker is not on the server, he is kept and asked again
+     * once a second.
      */
     private void ranAway(ServerLevel level) {
-        if (baker != null) {
-            ServerPlayer player = level.getServer().getPlayerList().getPlayer(baker);
+        ServerPlayer player = baker != null ? level.getServer().getPlayerList().getPlayer(baker) : null;
+        if (baker != null && player == null) {
+            return;
+        }
+        if (player != null) {
             if (byWindow) {
                 TaleTrigger.award(player, Tale.BY_THE_WINDOW);
             }
@@ -1473,14 +1538,14 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     }
 
     /**
-     * A tamed Kolobok sings the whole song every eight to fifteen minutes, unless he is asleep or
-     * there is nobody about to hear it; then he tries again a little later.
+     * A tamed Kolobok sings the whole song every eight to fifteen minutes, unless he is asleep, his
+     * owner is away or there is nobody about to hear it; then he tries again a little later.
      */
     private void idleSong(ServerLevel level) {
         if (!isTame() || --nextSong > 0) {
             return;
         }
-        if (isSinging() || getMood() == Mood.SLEEP || isSheltered() || goingToStove || !hasAudience(level)) {
+        if (isSinging() || asleep() || ownerAway || isSheltered() || goingToStove || !hasAudience(level)) {
             nextSong = SONG_RETRY;
             return;
         }
@@ -1572,6 +1637,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         listeners.clear();
         fidgeted.clear();
         concertListeners = List.of();
+        waitingFoxes = List.of();
     }
 
     private void songTick(ServerLevel level) {
@@ -1592,11 +1658,21 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         // head held still on him brings the body round after it.
         if (elapsed % 10 == 0) {
             concertListeners = concertAudience(level);
+            waitingFoxes = level.getEntitiesOfClass(Fox.class, getBoundingBox().inflate(FOX_GRAB_RANGE),
+                    fox -> fox.getTarget() == this);
         }
         for (Mob animal : concertListeners) {
             if (listens(animal)) {
                 Goals.hold(animal);
                 animal.getLookControl().setLookAt(this);
+            }
+        }
+        // «И от тебя уйду!» A fox after him does not cut in on the song: it creeps up and waits for
+        // the last note, when it has him (see finishSong). Its bite meanwhile does nothing.
+        for (Fox fox : waitingFoxes) {
+            if (fox.isAlive() && fox.getTarget() == this) {
+                Goals.hold(fox);
+                fox.getLookControl().setLookAt(this);
             }
         }
         if (elapsed % 20 == 10) {
@@ -1612,21 +1688,29 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     // ------------------------------------------------------------------------------------ concert
 
     /**
-     * @return whether he would sing to that mob: an animal or a villager, awake, not a fox (foxes are
-     *         a story of their own) and not another Kolobok
+     * @return whether he would sing to that mob: an animal, or a villager or anyone else of the
+     *         {@code kolobok:concert_animals} tag, awake, not a fox (foxes are a story of their own)
+     *         and not another Kolobok
      */
     private static boolean isAudience(Mob mob) {
-        return (mob instanceof Animal || mob instanceof AbstractVillager) && !(mob instanceof KolobokEntity)
+        return (mob instanceof Animal || mob.is(CONCERT_ANIMALS)) && !(mob instanceof KolobokEntity)
                 && !(mob instanceof Fox) && mob.isAlive() && !mob.isNoAi() && !mob.isSleeping();
     }
 
     /**
-     * @return the animals within earshot that come up and watch him sing: those run on goals (a brain
-     *         would overrule whatever he asks of them), free to walk (not ridden, carrying anyone,
-     *         leashed or told to sit), not panicking, hurt or after anyone
+     * @return the animals within earshot that come up and watch him sing, the nearest few: those run
+     *         on goals (a brain would overrule whatever he asks of them), free to walk (not ridden,
+     *         carrying anyone, leashed or told to sit), not panicking, hurt or after anyone. A farm
+     *         full of cows would otherwise all set off at once, each with a path of its own.
      */
     private List<Mob> concertAudience(ServerLevel level) {
-        return level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(CONCERT_RANGE), KolobokEntity::listens);
+        List<Mob> near = level.getEntitiesOfClass(Mob.class, getBoundingBox().inflate(CONCERT_RANGE),
+                mob -> distanceToSqr(mob) <= CONCERT_RANGE * CONCERT_RANGE && listens(mob));
+        if (near.size() > CONCERT_MAX) {
+            near.sort(Comparator.comparingDouble(this::distanceToSqr));
+            near = near.subList(0, CONCERT_MAX);
+        }
+        return near;
     }
 
     /**
@@ -1699,55 +1783,112 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 || mob instanceof WitherBoss || mob instanceof EnderDragon || !Goals.runsOnGoals(mob)) {
             return false;
         }
-        return !(mob instanceof OwnableEntity pet && getOwner() != null && pet.getOwner() == getOwner());
+        return !isOwnersPet(mob);
     }
 
     /**
-     * The mob goes for him: one that can attack, by targeting him; one that cannot, by chasing him
-     * and butting. Either way, if he gets away from it, it is a verse.
+     * @return whether that is a pet of his owner's, online or not
+     */
+    private boolean isOwnersPet(Entity entity) {
+        return entity instanceof OwnableEntity pet && getOwnerReference() != null && pet.getOwnerReference() != null
+                && getOwnerReference().getUUID().equals(pet.getOwnerReference().getUUID());
+    }
+
+    /**
+     * @return whether that mob fights at all: a monster, or one with an attack among its goals. A
+     *         hare or a parrot has an attack strength and no way to use it.
+     */
+    private static boolean fights(Mob mob) {
+        return mob instanceof Enemy || Goals.goals(mob).getAvailableGoals().stream().map(WrappedGoal::getGoal)
+                .anyMatch(goal -> goal instanceof MeleeAttackGoal || goal instanceof RangedAttackGoal
+                        || goal instanceof OcelotAttackGoal);
+    }
+
+    /**
+     * The mob goes for him: one that fights, by targeting him; one that does not, by chasing him and
+     * butting. On a player's shoulder or head he cannot run, and the mob goes for the player instead.
+     * Either way it lets go after a while, and if he — or the player with him — gets away, it is a
+     * verse.
      */
     private void provoke(ServerLevel level, Mob mob) {
-        if (mob instanceof Enemy || mob.getAttribute(Attributes.ATTACK_DAMAGE) != null) {
-            // As if he had hit it: the mob's own «who hurt me» goal, which comes before its others,
-            // keeps him as the target instead of letting it go back to whoever it was after.
-            mob.setLastHurtByMob(this);
-            mob.setTarget(this);
-        } else {
-            butting.put(mob.getUUID(), level.getGameTime() + BUTT_TICKS);
+        LivingEntity victim = this;
+        if (getKState() == KState.ON_PLAYER) {
+            Player carrier = carrier(level);
+            if (carrier == null || carrier.isCreative() || carrier.isSpectator()) {
+                return;
+            }
+            victim = carrier;
         }
+        boolean fights = fights(mob);
+        if (fights) {
+            // As if he had hit it: the mob's own «who hurt me» goal, which comes before its others,
+            // keeps the victim as the target instead of letting it go back to whoever it was after.
+            mob.setLastHurtByMob(victim);
+            mob.setTarget(victim);
+        }
+        provoked.put(mob.getUUID(), new Provoked(victim.getUUID(), level.getGameTime() + PROVOKE_TICKS, !fights));
         noteAttacker(level, mob);
         level.sendParticles(ParticleTypes.ANGRY_VILLAGER, mob.getX(), mob.getEyeY() + 0.4, mob.getZ(), 1, 0.0, 0.0, 0.0, 0.0);
     }
 
     /**
-     * @return whether that mob is after him: aiming at him, or set on butting him
+     * @return whether that mob is after him, or after the player he sits on: aiming at him, or set on
+     *         him by his song or his luring
      */
     private boolean isAfterMe(Mob mob) {
-        return mob.getTarget() == this || butting.containsKey(mob.getUUID());
+        return mob.getTarget() == this || provoked.containsKey(mob.getUUID());
     }
 
-    /** Annoyed mobs that cannot attack run after him and butt him. */
-    private void buttTick(ServerLevel level) {
-        if (butting.isEmpty()) {
+    /**
+     * Twice a second, the mobs set on him: those that do not fight run after their victim and butt
+     * it; once their time is up, or he is far off or out of reach, every one of them lets go.
+     */
+    private void provokeTick(ServerLevel level) {
+        if (provoked.isEmpty()) {
             return;
         }
         long now = level.getGameTime();
-        Iterator<Map.Entry<UUID, Long>> it = butting.entrySet().iterator();
+        Iterator<Map.Entry<UUID, Provoked>> it = provoked.entrySet().iterator();
         while (it.hasNext()) {
-            Map.Entry<UUID, Long> entry = it.next();
-            if (!(level.getEntity(entry.getKey()) instanceof Mob mob) || !mob.isAlive() || now > entry.getValue()
-                    || mob.distanceToSqr(this) > VERSE_DISTANCE * VERSE_DISTANCE || isSheltered()
-                    || getKState() == KState.ON_PLAYER) {
+            Map.Entry<UUID, Provoked> entry = it.next();
+            Provoked provocation = entry.getValue();
+            if (!(level.getEntity(entry.getKey()) instanceof Mob mob) || !mob.isAlive()) {
                 it.remove();
                 continue;
             }
-            mob.getNavigation().moveTo(this, 1.25);
-            if (mob.distanceToSqr(this) < 1.5 * 1.5 && now >= nextButt && mob.hasLineOfSight(this)) {
-                nextButt = now + BUTT_GAP;
-                mob.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
-                hurtServer(level, damageSources().mobAttack(mob), 1.0F);
+            Entity victim = level.getEntity(provocation.victim());
+            if (now > provocation.until() || !(victim instanceof LivingEntity target) || !target.isAlive() || isSheltered()
+                    || mob.distanceToSqr(this) > VERSE_DISTANCE * VERSE_DISTANCE) {
+                calmDown(mob, provocation.victim());
+                it.remove();
+                continue;
+            }
+            if (provocation.butts()) {
+                mob.getNavigation().moveTo(target, 1.25);
+                if (mob.distanceToSqr(target) < 1.5 * 1.5 && now >= nextButt && mob.hasLineOfSight(target)) {
+                    nextButt = now + BUTT_GAP;
+                    mob.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT);
+                    target.hurtServer(level, damageSources().mobAttack(mob), 1.0F);
+                }
             }
         }
+    }
+
+    /**
+     * The mob forgets whom it was set on, if it is still after them; a grudge of its own it keeps.
+     */
+    private static void calmDown(Mob mob, UUID victim) {
+        if (mob.getTarget() != null && mob.getTarget().getUUID().equals(victim)) {
+            mob.setTarget(null);
+        }
+        if (mob.getLastHurtByMob() != null && mob.getLastHurtByMob().getUUID().equals(victim)) {
+            mob.setLastHurtByMob(null);
+        }
+        mob.getNavigation().stop();
+    }
+
+    /** A mob set on him or on his carrier: whom, until what game time, and whether it only butts. */
+    private record Provoked(UUID victim, long until, boolean butts) {
     }
 
     // ------------------------------------------------------------------------------------ fears and the fox
@@ -1755,7 +1896,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     /**
      * @return whether he runs from that: a fox, a wild wolf, a hare, a polar bear or a witch (the
      *         tag), unless he has a verse about that mob already. A fox he does not see while he
-     *         sings, nor while he rolls up to one, nor ever after he was rescued from one.
+     *         rolls up to one, nor ever after he was rescued from one; while he sings he runs from
+     *         nothing at all (see {@link #keepsAway}).
      */
     private boolean fears(LivingEntity entity) {
         if (!entity.is(SCARES_KOLOBOK) || verses().contains(EntityType.getKey(entity.getType()).toString())) {
@@ -1765,7 +1907,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             return false;
         }
         if (entity instanceof Fox) {
-            return !isSinging() && !curiousAboutFox && !hasPerk(Perk.FOX);
+            return !curiousAboutFox && !hasPerk(Perk.FOX);
         }
         return true;
     }
@@ -1799,7 +1941,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         getNavigation().stop();
         dizzyTicks = 0;
         charmedTicks = 0;
-        KState state = getKState();
+        KState state = switch (getKState()) {
+            case HEAD_ACT -> afterHeadAct;
+            case BOWLING -> afterBowl;
+            default -> getKState();
+        };
+        headActTicks = 0;
         afterCaught = !isTame() ? KState.RUNAWAY
                 : state == KState.SIT || state == KState.GUARD || state == KState.WANDER ? state : KState.FOLLOW;
         startRiding(fox, true, true);
@@ -1850,8 +1997,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             away = away.normalize().scale(0.45);
             setDeltaMovement(away.x, 0.4, away.z);
         }
-        if (rescued && !foxRescued) {
-            foxRescued = true;
+        if (rescued && !hasFlag(FLAG_FOX_RESCUED)) {
+            setFlag(FLAG_FOX_RESCUED, true);
             if (getOwner() instanceof ServerPlayer owner) {
                 owner.sendSystemMessage(Component.translatable("kolobok.verse.perk",
                         Component.translatable(Perk.FOX.key()), Component.translatable(Perk.FOX.key() + ".desc")));
@@ -1872,6 +2019,34 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             return vehicle.getPassengerRidingPosition(this).subtract(mouth);
         }
         return super.getVehicleAttachmentPoint(vehicle);
+    }
+
+    /**
+     * He never goes through a portal on his own. Through one he travels on a player's shoulder (see
+     * {@link #followCarriers}) or in a bindle.
+     */
+    @Override
+    public boolean canUsePortal(boolean ignorePassenger) {
+        return false;
+    }
+
+    /**
+     * A fox carrying him, or a chicken he rides, goes through a portal: he jumps off on this side,
+     * and the fox has to make do without him.
+     */
+    @Override
+    public @Nullable Entity teleport(TeleportTransition transition) {
+        KState state = getKState();
+        if (transition.asPassenger() && level() instanceof ServerLevel level && transition.newLevel() != level
+                && (state == KState.CAUGHT || state == KState.ON_CHICKEN)) {
+            if (state == KState.CAUGHT) {
+                letGo(level, null, false);
+            } else {
+                offChicken();
+            }
+            return null;
+        }
+        return super.teleport(transition);
     }
 
     /**
@@ -2057,17 +2232,11 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             return null;
         }
         Direction facing = stove.facing();
-        List<Vec3> places = StovePattern.topSlots(mouth, facing);
-        int nearest = 0;
-        for (int i = 1; i < places.size(); i++) {
-            if (places.get(i).distanceToSqr(position()) < places.get(nearest).distanceToSqr(position())) {
-                nearest = i;
-            }
-        }
-        if (places.get(nearest).distanceToSqr(position()) > 0.5 * 0.5) {
+        StovePart top = StovePattern.nearestTop(mouth, facing, position(), 0.5);
+        if (top == null) {
             return null;
         }
-        for (BlockPos ground : StovePattern.beside(mouth, facing, StovePattern.TOP.get(nearest))) {
+        for (BlockPos ground : StovePattern.beside(mouth, facing, top)) {
             if (canStandAt(level, ground)) {
                 return ground;
             }
@@ -2105,10 +2274,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     }
 
     /**
-     * @return whether he fits on that block, with something solid under it
+     * @return whether he fits on that block, with something solid under it; a block not loaded is not
+     *         looked at, which would load it
      */
     private boolean canStandAt(Level level, BlockPos ground) {
-        return level.noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(Vec3.atBottomCenterOf(ground)))
+        return level.isLoaded(ground.below())
+                && level.noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(Vec3.atBottomCenterOf(ground)))
                 && level.getBlockState(ground.below()).isFaceSturdy(level, ground.below(), Direction.UP);
     }
 
@@ -2304,7 +2475,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * The perks that act on their own, once a second: «Тут как тут» and «Бессонница».
      */
     private void perkTick(ServerLevel level) {
-        if (!(getOwner() instanceof ServerPlayer owner) || owner.level() != level) {
+        if (!(getOwner() instanceof ServerPlayer owner) || owner.level() != level || owner.isSpectator()) {
             return;
         }
         lureTick(level, owner);
@@ -2403,30 +2574,89 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     // ------------------------------------------------------------------------------------ shoulder and head
 
+    /**
+     * @return the player he sits on, wherever that player is now, or {@code null}; server side
+     */
+    private @Nullable ServerPlayer carrier(ServerLevel level) {
+        return carrierId == null ? null : level.getServer().getPlayerList().getPlayer(carrierId);
+    }
+
+    /**
+     * @return the Kolobok sitting on that player, if any; a player carries one at most
+     */
+    private static @Nullable KolobokEntity carriedBy(Player player) {
+        WeakReference<KolobokEntity> held = CARRIED.get(player.getUUID());
+        KolobokEntity kolobok = held != null ? held.get() : null;
+        return kolobok != null && !kolobok.isRemoved() && kolobok.getKState() == KState.ON_PLAYER ? kolobok : null;
+    }
+
     private void carryTick(ServerLevel level) {
-        Player carrier = getCarrier();
-        if (carrier == null || !carrier.isAlive() || carrier.isSpectator() || carrier.isSleeping()
-                || carrier.isFallFlying() || carrier.isInWater() && carrier.isSwimming()) {
-            getOffPlayer(carrier != null && carrier.isAlive());
+        ServerPlayer carrier = carrier(level);
+        if (carrier == null || carrier.isSpectator() || carrier.isSleeping()) {
+            // Logged out, gone to watch or to bed: he sits down where he was.
+            getOffPlayer(KState.SIT, true);
             return;
         }
-        boolean onHead = getRideSlot() == RideSlot.HEAD;
-        headArmour(carrier, onHead);
-        if (!onHead && tickCount % 10 == 0) {
+        if (!carrier.isAlive()) {
+            carrierFell();
+            getOffPlayer(KState.FOLLOW, true);
+            return;
+        }
+        if (carrier.level() != level) {
+            // Through a portal: followCarriers brings him after his player before this level ticks again.
+            return;
+        }
+        // In water, lava or anything else that flows he is off at once, before he soaks or drowns.
+        if (inAnyFluid()) {
+            getOffPlayer(KState.FOLLOW, true);
+            say("dismount");
+            return;
+        }
+        if (carrier.isFallFlying()) {
+            // Gliding off a cliff he holds on, unless the ground is right there.
+            if (!refusedDismount) {
+                if (getOffPlayer(KState.FOLLOW, false)) {
+                    say("dismount");
+                    return;
+                }
+                refusedDismount = true;
+                say("dismount_refuse");
+            }
+        } else if (carrier.onGround()) {
+            refusedDismount = false;
+        }
+        if (getRideSlot() != RideSlot.HEAD && tickCount % 10 == 0) {
             watchBehind(level, carrier);
         }
         boolean shifting = carrier.isShiftKeyDown();
         if (shifting && !carrierWasShifting) {
             if (tickCount - lastCarrierShiftPress <= DOUBLE_SHIFT_TICKS) {
                 carrierWasShifting = true;
-                getOffPlayer(true);
-                say("dismount");
-                return;
+                if (getOffPlayer(KState.FOLLOW, false)) {
+                    say("dismount");
+                    return;
+                }
+                say("dismount_refuse");
             }
             lastCarrierShiftPress = tickCount;
         }
         carrierWasShifting = shifting;
         snapTo(carrier);
+    }
+
+    /**
+     * @return whether any fluid reaches into his box: water, lava or a mod's own
+     */
+    private boolean inAnyFluid() {
+        AABB box = getBoundingBox();
+        for (BlockPos pos : BlockPos.betweenClosed(BlockPos.containing(box.minX, box.minY, box.minZ),
+                BlockPos.containing(box.maxX, box.maxY, box.maxZ))) {
+            FluidState fluid = level().getFluidState(pos);
+            if (!fluid.isEmpty() && pos.getY() + fluid.getHeight(level(), pos) > box.minY) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void snapTo(Player carrier) {
@@ -2443,12 +2673,16 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         if (isPassenger()) {
             stopRiding();
         }
+        carrierId = player.getUUID();
+        CARRIED.put(carrierId, new WeakReference<>(this));
         entityData.set(DATA_CARRIER, player.getId());
         entityData.set(DATA_RIDE_SLOT, (byte) slot.ordinal());
         setKState(KState.ON_PLAYER);
         getNavigation().stop();
         carrierWasShifting = player.isShiftKeyDown();
         lastCarrierShiftPress = -100;
+        refusedDismount = false;
+        headArmour(player, slot == RideSlot.HEAD);
         snapTo(player);
         if (slot == RideSlot.HEAD) {
             TaleTrigger.award(player, Tale.ON_HEAD);
@@ -2456,30 +2690,149 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     }
 
     /**
-     * @param carrierStillHere whether the player is around to follow; when he is not (logged out,
-     *                         changed dimension), Kolobok sits down where he was dropped
+     * Down off the player, in front of him where he can see him, or at his feet if a wall is in the
+     * way.
+     *
+     * @param then   what he goes on to do
+     * @param forced whether he gets off whatever is below: the player is gone, dead or asleep, or he
+     *               is in a fluid. No fall hurts him then until he lands. Otherwise he jumps only
+     *               where he lands whole.
+     * @return whether he got off; {@code false} if there was nowhere to land whole and he stays
      */
-    private void getOffPlayer(boolean carrierStillHere) {
-        Player carrier = getCarrier();
+    private boolean getOffPlayer(KState then, boolean forced) {
+        ServerPlayer carrier = level() instanceof ServerLevel level ? carrier(level) : null;
+        Vec3 landing = null;
+        if (carrier != null && carrier.level() == level()) {
+            Vec3 look = Vec3.directionFromRotation(0, carrier.yBodyRot).scale(0.8);
+            for (Vec3 spot : List.of(carrier.position().add(look.x, 0, look.z), carrier.position())) {
+                if (level().noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(spot)) && (forced || landsWhole(spot))) {
+                    landing = spot;
+                    break;
+                }
+            }
+            if (landing == null && forced) {
+                landing = carrier.position();
+            }
+        }
+        if (landing == null && !forced) {
+            return false;
+        }
         if (carrier != null) {
             headArmour(carrier, false);
         }
-        entityData.set(DATA_CARRIER, -1);
+        forgetCarrier();
         entityData.set(DATA_RIDE_SLOT, (byte) RideSlot.NONE.ordinal());
-        setKState(carrierStillHere ? KState.FOLLOW : KState.SIT);
+        setKState(then);
         noPhysics = false;
-        if (carrier != null && carrierStillHere) {
-            // Down in front of the player, where he can see him; at his feet if a wall is in the way.
-            Vec3 look = Vec3.directionFromRotation(0, carrier.yBodyRot).scale(0.8);
-            Vec3 front = carrier.position().add(look.x, 0, look.z);
-            boolean free = level().noCollision(this, getDimensions(Pose.STANDING).makeBoundingBox(front));
-            setPos(free ? front : carrier.position());
+        if (landing != null) {
+            setPos(landing);
+        }
+        softLanding |= forced;
+        return true;
+    }
+
+    private void forgetCarrier() {
+        if (carrierId != null) {
+            CARRIED.computeIfPresent(carrierId, (id, held) -> held.get() == this ? null : held);
+        }
+        carrierId = null;
+        entityData.set(DATA_CARRIER, -1);
+    }
+
+    /**
+     * @return whether he lands whole jumping down there: on ground or into water no further below than
+     *         he falls unhurt. Nothing below that is loaded is no ground.
+     */
+    private boolean landsWhole(Vec3 spot) {
+        double safe = getAttributeValue(Attributes.SAFE_FALL_DISTANCE);
+        BlockPos.MutableBlockPos pos = BlockPos.containing(spot).mutable();
+        for (int i = 0; i <= (int) Math.ceil(safe) + 1; i++) {
+            if (!level().isLoaded(pos)) {
+                return false;
+            }
+            BlockState state = level().getBlockState(pos);
+            if (!state.getFluidState().isEmpty()) {
+                return state.getFluidState().is(FluidTags.WATER);
+            }
+            var shape = state.getCollisionShape(level(), pos);
+            if (!shape.isEmpty()) {
+                return spot.y - (pos.getY() + shape.max(Direction.Axis.Y)) <= safe;
+            }
+            pos.move(Direction.DOWN);
+        }
+        return false;
+    }
+
+    /**
+     * The mobs set on his carrier got the player: he jumps down and keeps away from them a while, and
+     * that is no getting away of his.
+     */
+    private void carrierFell() {
+        provoked.replaceAll((mob, provocation) -> provocation.victim().equals(carrierId)
+                ? new Provoked(getUUID(), provocation.until(), false) : provocation);
+        if (attacker != null && provoked.containsKey(attacker)) {
+            forgetAttacker();
         }
     }
 
     /**
-     * On his owner's head he adds two points of armour. The modifier is transient: it is never saved
-     * with the player, so a crash or a lost connection cannot leave it behind.
+     * At the start of every server tick, before any level ticks: a Kolobok on a player who has since
+     * gone far or into another level — through a portal, by a command or an ender pearl — is brought
+     * after him while the chunk he was left in is still loaded. In the same level he is just put back
+     * on the player; into another he goes the way an entity goes through a portal.
+     */
+    public static void followCarriers(MinecraftServer server) {
+        if (CARRIED.isEmpty()) {
+            return;
+        }
+        List<KolobokEntity> behind = new ArrayList<>();
+        Iterator<Map.Entry<UUID, WeakReference<KolobokEntity>>> it = CARRIED.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, WeakReference<KolobokEntity>> entry = it.next();
+            KolobokEntity kolobok = entry.getValue().get();
+            if (kolobok == null || kolobok.isRemoved() || kolobok.getKState() != KState.ON_PLAYER) {
+                it.remove();
+                continue;
+            }
+            ServerPlayer player = server.getPlayerList().getPlayer(entry.getKey());
+            if (player != null && player.isAlive()
+                    && (player.level() != kolobok.level() || player.distanceToSqr(kolobok) > 8.0 * 8.0)) {
+                behind.add(kolobok);
+            }
+        }
+        for (KolobokEntity kolobok : behind) {
+            kolobok.followCarrier(server);
+        }
+    }
+
+    private void followCarrier(MinecraftServer server) {
+        ServerPlayer player = carrierId != null ? server.getPlayerList().getPlayer(carrierId) : null;
+        if (player == null) {
+            return;
+        }
+        if (player.level() == level()) {
+            snapTo(player);
+            return;
+        }
+        RideSlot slot = getRideSlot();
+        Entity moved = teleport(new TeleportTransition(player.level(), player.position(), Vec3.ZERO, player.getYRot(), 0.0F,
+                TeleportTransition.DO_NOTHING));
+        if (moved instanceof KolobokEntity kolobok) {
+            kolobok.getOnPlayer(player, slot);
+        } else if (!isRemoved()) {
+            getOffPlayer(KState.SIT, true);
+        }
+    }
+
+    /** The server stopped: nobody carries anyone any more. */
+    public static void serverStopped() {
+        CARRIED.clear();
+    }
+
+    /**
+     * On his owner's head he adds two points of armour, from getting on until getting off. The
+     * modifier is transient: it is never saved with the player, so a crash or a lost connection
+     * cannot leave it behind.
      */
     private static void headArmour(Player player, boolean on) {
         AttributeInstance armour = player.getAttribute(Attributes.ARMOR);
@@ -2553,7 +2906,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     /**
      * Shoulder, then head, then down — Shift and right-click with an empty hand. A
-     * parrot keeps its shoulder; Kolobok takes the other one.
+     * parrot keeps its shoulder; Kolobok takes the other one. Another Kolobok on the player already,
+     * he will not: the player has a favourite, and he takes offence.
      */
     private void cycleRide(Player player) {
         RideSlot slot = getKState() == KState.ON_PLAYER ? getRideSlot() : RideSlot.NONE;
@@ -2561,6 +2915,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             case NONE -> {
                 if (sulkTicks > 0) {
                     say("sulk");
+                    return;
+                }
+                KolobokEntity favourite = carriedBy(player);
+                if (favourite != null && favourite != this) {
+                    jealousTicks = JEALOUS_TICKS;
+                    say("ride_taken");
                     return;
                 }
                 boolean parrot = !player.getShoulderParrotRight().isEmpty() || !player.getShoulderParrotLeft().isEmpty();
@@ -2574,10 +2934,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 getOnPlayer(player, RideSlot.HEAD);
                 say("head");
             }
-            case HEAD -> {
-                getOffPlayer(true);
-                say("dismount");
-            }
+            case HEAD -> say(getOffPlayer(KState.FOLLOW, false) ? "dismount" : "dismount_refuse");
         }
     }
 
@@ -2594,10 +2951,18 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         return super.isPickable();
     }
 
+    /**
+     * Unloaded, killed or gone to another level on a player's shoulder, he takes his armour off the
+     * player, wherever that player is; carried on, the Kolobok made in the new level puts it back.
+     */
     @Override
     public void remove(Entity.RemovalReason reason) {
-        if (getKState() == KState.ON_PLAYER && getCarrier() != null) {
-            headArmour(getCarrier(), false);
+        if (getKState() == KState.ON_PLAYER && level() instanceof ServerLevel level) {
+            ServerPlayer carrier = carrier(level);
+            if (carrier != null) {
+                headArmour(carrier, false);
+            }
+            forgetCarrier();
         }
         super.remove(reason);
     }
@@ -2618,17 +2983,43 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         }
     }
 
+    /**
+     * Pinned, he does not fall. Not by {@code isNoGravity}: the game saves what that says, and a
+     * save made while he sat on a player or in the горнило would leave him floating for good.
+     */
     @Override
-    public boolean isNoGravity() {
-        return isPinned() || super.isNoGravity();
+    protected double getDefaultGravity() {
+        return isPinned() ? 0.0 : super.getDefaultGravity();
     }
 
     // ------------------------------------------------------------------------------------ modes
 
     /**
-     * The rolling pin's click: follow → follow with crumbs → guard → wander → follow.
+     * The rolling pin's click. Riding a chicken he gets off it first; the Head wakes up first, with
+     * its «Приснится же…»; bowling or showing the way he is busy.
      */
-    private void nextMode() {
+    private void switchMode() {
+        KState state = getKState();
+        if (state == KState.ON_CHICKEN) {
+            offChicken();
+        } else if (state == KState.HEAD_ACT) {
+            endHeadAct("golova_end");
+            nextMode(false);
+            return;
+        }
+        if (!MODES.contains(getKState())) {
+            say("bindle_busy");
+            return;
+        }
+        nextMode(true);
+    }
+
+    /**
+     * Follow → follow with crumbs → guard → wander → follow; sitting, he gets up to follow.
+     *
+     * @param speak whether he says which mode it is now
+     */
+    private void nextMode(boolean speak) {
         KState state = getKState();
         boolean crumbs = hasFlag(FLAG_CRUMBS);
         String mode;
@@ -2651,7 +3042,9 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             mode = "follow";
         }
         getNavigation().stop();
-        say("mode_" + mode);
+        if (speak) {
+            say("mode_" + mode);
+        }
     }
 
     // ------------------------------------------------------------------------------------ interaction
@@ -2705,7 +3098,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             }
         }
         if (stack.is(KItems.SONGBOOK.get())) {
-            return writeSongbook(stack, owner);
+            return writeSongbook(player, stack, owner);
         }
         if (stack.is(KItems.BINDLE.get()) && !BindleItem.isFull(stack)) {
             return intoBindle(stack, owner);
@@ -2713,6 +3106,15 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         // On the stove he only takes milk.
         if (getKState() == KState.RESTING && !stack.is(Items.MILK_BUCKET)) {
             return InteractionResult.PASS;
+        }
+        // Tickled with a feather, anyone's, he squeaks; the Head sneezes instead (above).
+        if (stack.is(Items.FEATHER) && !isSheltered()) {
+            if (level() instanceof ServerLevel && !isSinging() && tickCount >= nextTickle) {
+                nextTickle = tickCount + TICKLE_GAP;
+                playSound(KSounds.SQUEAK.get(), 0.6F, voice());
+                say("tickle");
+            }
+            return InteractionResult.SUCCESS;
         }
         if (stack.is(Items.SHEARS) && owner && hasAnyOutfit()) {
             return shearOutfit(player, hand, stack);
@@ -2763,7 +3165,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         if (stack.is(KItems.ROLLING_PIN.get()) && owner && !player.isShiftKeyDown()
                 && getKState() != KState.ON_PLAYER) {
             if (!level().isClientSide()) {
-                nextMode();
+                switchMode();
             }
             return InteractionResult.SUCCESS;
         }
@@ -2826,7 +3228,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * Writes his song and perks into the owner's songbook. The real stack in hand is written,
      * so this works in creative mode too.
      */
-    private InteractionResult writeSongbook(ItemStack stack, boolean owner) {
+    private InteractionResult writeSongbook(Player player, ItemStack stack, boolean owner) {
         if (level().isClientSide()) {
             return InteractionResult.SUCCESS;
         }
@@ -2834,7 +3236,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             say("songbook_stranger");
             return InteractionResult.SUCCESS;
         }
-        SongbookItem.write(stack, this);
+        SongbookItem.write(stack, this, player);
         level().playSound(null, getX(), getY(), getZ(), SoundEvents.BOOK_PAGE_TURN, SoundSource.PLAYERS, 1.0F, 1.0F);
         say("songbook");
         return InteractionResult.SUCCESS_SERVER;
@@ -2895,10 +3297,6 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     }
 
     /**
-     * Puts it on him, one of the stack: a hat or a helmet on his head, boots on his feet, tinted glass
-     * over his eyes. What he wore there before goes back to the player. Only his owner dresses him.
-     */
-    /**
      * @return what he says of his new лапти: bast ones from leather boots, «кованые» from metal ones,
      *         «лапти-люкс» from gold
      */
@@ -2910,6 +3308,10 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         };
     }
 
+    /**
+     * Puts it on him, one of the stack: a hat or a helmet on his head, boots on his feet, tinted glass
+     * over his eyes. What he wore there before goes back to the player. Only his owner dresses him.
+     */
     private InteractionResult dress(Player player, ItemStack stack, boolean owner) {
         if (level().isClientSide()) {
             return InteractionResult.SUCCESS;
@@ -3009,7 +3411,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      */
     private void maybeStartHeadAct(ServerLevel level) {
         KState state = getKState();
-        if (tickCount < nextHeadActCheck || !isTame() || !(state == KState.SIT || state == KState.GUARD)) {
+        if (tickCount < nextHeadActCheck || !isTame() || ownerAway || !(state == KState.SIT || state == KState.GUARD)) {
             return;
         }
         nextHeadActCheck = tickCount + HEAD_ACT_CHECK;
@@ -3147,7 +3549,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      */
     private boolean mayEscape() {
         KState state = getKState();
-        if (!isTame() || !KConfig.server().escapades || !(state == KState.FOLLOW || state == KState.WANDER)
+        if (!isTame() || ownerAway || !KConfig.server().escapades || !(state == KState.FOLLOW || state == KState.WANDER)
                 || goingToStove || hop != null || isPassenger() || getHealth() < getMaxHealth() / 2.0F) {
             return false;
         }
@@ -3296,8 +3698,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         if (state == KState.ON_PLAYER) {
             return getCarrier() == player;
         }
-        return (state == KState.FOLLOW || state == KState.SIT || state == KState.GUARD || state == KState.WANDER)
-                && hop == null && !isPassenger();
+        return MODES.contains(state) && hop == null && !isPassenger();
     }
 
     /**
@@ -3307,7 +3708,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     public void bowl(Vec3 target) {
         KState state = getKState();
         if (state == KState.ON_PLAYER) {
-            getOffPlayer(true);
+            getOffPlayer(KState.FOLLOW, true);
         }
         if (isSinging()) {
             stopSong();
@@ -3346,11 +3747,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * @return whether he knocks that over: anyone but players, his owner's pets and his own kind
      */
     private boolean bowlable(LivingEntity entity) {
-        if (entity == this || !entity.isAlive() || entity instanceof Player || entity instanceof KolobokEntity
-                || entity.isPassenger() && entity.getVehicle() == this) {
-            return false;
-        }
-        return !(entity instanceof OwnableEntity pet && getOwner() != null && pet.getOwner() == getOwner());
+        return entity != this && entity.isAlive() && !(entity instanceof Player) && !(entity instanceof KolobokEntity)
+                && !(entity.isPassenger() && entity.getVehicle() == this) && !isOwnersPet(entity);
     }
 
     private void endBowl(ServerLevel level) {
@@ -3568,9 +3966,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             return;
         }
         KState state = getKState();
-        boolean free = state == KState.FOLLOW || state == KState.SIT || state == KState.GUARD || state == KState.WANDER
-                || state == KState.ON_PLAYER;
-        if (!free || tickCount < nextJealous || getMood() == Mood.SLEEP || isSinging()
+        boolean free = MODES.contains(state) || state == KState.ON_PLAYER;
+        if (!free || tickCount < nextJealous || asleep() || isSinging()
                 || distanceToSqr(dog) > JEALOUS_RANGE * JEALOUS_RANGE || !hasLineOfSight(dog)) {
             return;
         }
@@ -3583,15 +3980,15 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * Petted where his owner's dog can see it, the dog whines its own whine: jealous in its turn.
      */
     private void dogWhines(ServerLevel level, Player owner) {
-        for (Wolf dog : level.getEntitiesOfClass(Wolf.class, getBoundingBox().inflate(JEALOUS_RANGE),
-                dog -> dog.isTame() && dog.isOwnedBy(owner) && dog.isAlive() && !isSharik(dog) && dog.hasLineOfSight(this))) {
-            Holder<WolfSoundVariant> sounds = dog.get(DataComponents.WOLF_SOUND_VARIANT);
-            if (sounds != null) {
-                WolfSoundVariant.WolfSoundSet set = dog.isBaby() ? sounds.value().babySounds() : sounds.value().adultSounds();
-                dog.playSound(set.whineSound().value(), 1.0F, dog.getVoicePitch());
-            }
-            return;
-        }
+        level.getEntitiesOfClass(Wolf.class, getBoundingBox().inflate(JEALOUS_RANGE),
+                dog -> dog.isTame() && dog.isOwnedBy(owner) && dog.isAlive() && !isSharik(dog) && dog.hasLineOfSight(this))
+                .stream().findFirst().ifPresent(dog -> {
+                    Holder<WolfSoundVariant> sounds = dog.get(DataComponents.WOLF_SOUND_VARIANT);
+                    if (sounds != null) {
+                        WolfSoundVariant.WolfSoundSet set = dog.isBaby() ? sounds.value().babySounds() : sounds.value().adultSounds();
+                        dog.playSound(set.whineSound().value(), 1.0F, dog.getVoicePitch());
+                    }
+                });
     }
 
     /**
@@ -3630,22 +4027,34 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     /**
      * He picks things up the vanilla way mobs do (so only while mob griefing is on): tamed, about his
-     * business, not singing, and not just after spitting out.
+     * business, his owner about, not singing, and not just after spitting out.
      */
     @Override
     public boolean canPickUpLoot() {
         KState state = getKState();
-        return isTame() && (state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD) && hop == null
-                && !isSinging() && tickCount >= nextPickup;
+        return isTame() && !ownerAway && (state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD)
+                && hop == null && !isSinging() && tickCount >= nextPickup;
     }
 
     /**
-     * Food only, until his song has five verses; then anything, but a bindle.
+     * Food only, until his song has five verses; then anything but what holds things itself: a
+     * shulker box, a bundle, a bindle. A bindle keeps his cheeks; boxes inside boxes would let one
+     * item grow past what a client can be sent.
      */
     @Override
     public boolean wantsToPickUp(ServerLevel level, ItemStack stack) {
-        return !stack.is(KItems.BINDLE.get()) && (verses().size() >= ANY_LOOT_VERSES || stack.has(DataComponents.FOOD))
+        return !holdsItems(stack) && (verses().size() >= ANY_LOOT_VERSES || stack.has(DataComponents.FOOD))
                 && cheekRoom(stack) > 0;
+    }
+
+    /**
+     * @return whether that item holds other items, or block or entity data that may
+     */
+    private static boolean holdsItems(ItemStack stack) {
+        return !stack.getItem().canFitInsideContainerItems() || stack.has(DataComponents.CONTAINER)
+                || stack.has(DataComponents.BUNDLE_CONTENTS) || stack.has(DataComponents.CHARGED_PROJECTILES)
+                || stack.has(DataComponents.BLOCK_ENTITY_DATA) || stack.has(DataComponents.ENTITY_DATA)
+                || stack.has(DataComponents.BUCKET_ENTITY_DATA) || stack.has(KComponents.STORED_KOLOBOK.get());
     }
 
     /**
@@ -3681,7 +4090,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      */
     private int cheekRoom(ItemStack stack) {
         int room = 0;
-        for (int i = 0; i < cheekSlots(); i++) {
+        int slots = cheekSlots();
+        for (int i = 0; i < slots; i++) {
             ItemStack in = cheeks.getItem(i);
             if (in.isEmpty()) {
                 room += stack.getMaxStackSize();
@@ -3739,34 +4149,41 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
     /**
      * «За проезд»: an emerald, and he finds the nearest village the way a dolphin finds treasure, then
-     * rolls twelve blocks towards it leaving crumbs. Once a game day; with no village about, or one
-     * right here, the emerald stays with its owner.
+     * rolls twelve blocks towards it leaving crumbs. Once a game day, found or not: with no village
+     * about, or one right here, the emerald stays with its owner, and till the next day he says so
+     * again without looking.
      */
     private InteractionResult showTheWay(Player player, ItemStack emerald) {
         if (!(level() instanceof ServerLevel level)) {
             return InteractionResult.SUCCESS;
         }
-        KState state = getKState();
-        if (!(state == KState.FOLLOW || state == KState.SIT || state == KState.GUARD || state == KState.WANDER) || hop != null) {
+        if (!MODES.contains(getKState()) || hop != null) {
             say("bindle_busy");
             return InteractionResult.SUCCESS;
         }
         if (level.getGameTime() < nextGuide) {
-            say("guide_tired");
+            say(guideAnswer);
             return InteractionResult.SUCCESS;
         }
-        BlockPos village = nearestVillage(level, KConfig.server().guideSearchChunks);
-        if (village == null) {
-            say("guide_none");
+        VillageFinder.Result found = VillageFinder.find(level, position(), KConfig.server().guideSearchChunks);
+        if (found.busy()) {
+            say("guide_busy");
             return InteractionResult.SUCCESS;
         }
-        Vec3 way = Vec3.atBottomCenterOf(village).subtract(position()).multiply(1.0, 0.0, 1.0);
-        if (way.lengthSqr() < GUIDE_DISTANCE * GUIDE_DISTANCE) {
-            say("guide_here");
-            return InteractionResult.SUCCESS;
-        }
-        emerald.consume(1, player);
         nextGuide = level.getGameTime() + GUIDE_GAP;
+        if (found.village() == null) {
+            guideAnswer = "guide_none";
+            say(guideAnswer);
+            return InteractionResult.SUCCESS;
+        }
+        Vec3 way = Vec3.atBottomCenterOf(found.village()).subtract(position()).multiply(1.0, 0.0, 1.0);
+        if (way.lengthSqr() < GUIDE_DISTANCE * GUIDE_DISTANCE) {
+            guideAnswer = "guide_here";
+            say(guideAnswer);
+            return InteractionResult.SUCCESS;
+        }
+        guideAnswer = "guide_tired";
+        emerald.consume(1, player);
         if (isSinging()) {
             stopSong();
         }
@@ -3780,31 +4197,17 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         }
         guideTicks = GUIDE_TICKS;
         guideShowTicks = 0;
+        guideCrumbsUntil = level.getGameTime() + GUIDE_CRUMB_TICKS;
+        setFlag(FLAG_GUIDE_CRUMBS, true);
         setKState(KState.GUIDING);
         getNavigation().moveTo(guideSpot.x, guideSpot.y, guideSpot.z, 1.0);
         say("guide");
         return InteractionResult.SUCCESS_SERVER;
     }
 
-    /**
-     * @return the nearest village within that many chunks, or {@code null}. The game searches in steps
-     *         of the villages' placement grid, 34 chunks for vanilla ones, not in chunks: the search is
-     *         as many steps as cover the distance, and a village found beyond it does not count.
-     */
-    private @Nullable BlockPos nearestVillage(ServerLevel level, int chunks) {
-        int spacing = Integer.MAX_VALUE;
-        for (Holder<Structure> village : level.registryAccess().lookupOrThrow(Registries.STRUCTURE).getTagOrEmpty(StructureTags.VILLAGE)) {
-            for (StructurePlacement placement : level.getChunkSource().getGeneratorState().getPlacementsForStructure(village)) {
-                if (placement instanceof RandomSpreadStructurePlacement spread) {
-                    spacing = Math.min(spacing, Math.max(1, spread.spacing()));
-                }
-            }
-        }
-        int steps = spacing == Integer.MAX_VALUE ? 1 : Math.max(1, (chunks + spacing - 1) / spacing);
-        BlockPos village = level.findNearestMapStructure(StructureTags.VILLAGE, blockPosition(), steps, false);
-        double range = chunks * 16.0;
-        return village != null && Vec3.atBottomCenterOf(village).subtract(position()).horizontalDistanceSqr() <= range * range
-                ? village : null;
+    /** The server stopped: what was known of villages belongs to that world. */
+    public static void forgetVillages() {
+        VillageFinder.clear();
     }
 
     /** Rolling the way, then a moment of looking along it; then back to following. */
@@ -3828,11 +4231,11 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     }
 
     /**
-     * @return whether he leaves crumbs now: in the crumbs mode while following, or showing the way
+     * @return whether he leaves crumbs now: in the crumbs mode while following, or for half a minute
+     *         after he set off to show the way. Synced flags only: the client asks this.
      */
     public boolean dropsCrumbs() {
-        KState state = getKState();
-        return state == KState.GUIDING && guideShowTicks == 0 || state == KState.FOLLOW && hasFlag(FLAG_CRUMBS);
+        return hasFlag(FLAG_GUIDE_CRUMBS) || getKState() == KState.FOLLOW && hasFlag(FLAG_CRUMBS);
     }
 
     // ------------------------------------------------------------------------------------ the chicken
@@ -3843,8 +4246,9 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      */
     private void maybeRideChicken(ServerLevel level) {
         KState state = getKState();
-        if (!KConfig.server().chickenJockey || tickCount < nextChickenCheck || !isTame()
-                || !(state == KState.FOLLOW || state == KState.WANDER) || hop != null || isSinging() || escapade != Escapade.NONE || goingToStove || !onGround() || isPassenger()) {
+        if (!KConfig.server().chickenJockey || tickCount < nextChickenCheck || !isTame() || ownerAway
+                || !(state == KState.FOLLOW || state == KState.WANDER) || hop != null || isSinging() || escapade != Escapade.NONE
+                || goingToStove || !onGround() || isPassenger()) {
             return;
         }
         nextChickenCheck = tickCount + CHICKEN_CHECK;
@@ -3943,8 +4347,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             say("bindle_busy");
             return InteractionResult.SUCCESS;
         }
+        if (!BindleItem.fits(this)) {
+            say("bindle_heavy");
+            return InteractionResult.SUCCESS;
+        }
         if (state == KState.ON_PLAYER) {
-            getOffPlayer(true);
+            getOffPlayer(KState.FOLLOW, true);
         }
         if (isPassenger()) {
             stopRiding();
@@ -3991,11 +4399,21 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 || source.is(DamageTypeTags.DAMAGES_HELMET))) {
             return false;
         }
-        boolean bypass = source.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
-        // A fox's bite is no wound: it carries him off.
-        if (!bypass && source.getEntity() instanceof Fox fox && foxMayHunt()) {
-            getCaught(fox);
+        // Put down in mid-air off a player, he lands soft.
+        if (softLanding && source.is(DamageTypeTags.IS_FALL)) {
             return false;
+        }
+        boolean bypass = source.is(DamageTypeTags.BYPASSES_INVULNERABILITY);
+        if (!bypass && source.getEntity() instanceof Fox fox) {
+            // A fox after him waits for the end of his song, as in the tale (see finishSong)…
+            if (isSinging() && fox.getTarget() == this) {
+                return false;
+            }
+            // …and its bite is no wound: it carries him off.
+            if (foxMayHunt()) {
+                getCaught(fox);
+                return false;
+            }
         }
         // Fresh from the oven nothing hurts him, and whoever hits him burns a hand.
         if (getKState() == KState.HOT && !bypass) {
@@ -4107,12 +4525,12 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
      * for the same kind every five minutes, and only when he is not saying something else.
      */
     private void meetTick(ServerLevel level) {
-        sharik = findSharik(level);
         KState state = getKState();
-        boolean free = state == KState.FOLLOW || state == KState.WANDER || state == KState.GUARD || state == KState.SIT
-                || state == KState.ON_PLAYER || state == KState.RUNAWAY;
+        // Шарик he keeps near only wandering; his name is all the other lines need of him.
+        sharik = state == KState.WANDER && !ownerAway ? findSharik(level) : null;
+        boolean free = MODES.contains(state) || state == KState.ON_PLAYER || state == KState.RUNAWAY;
         // A word about a neighbour never cuts in on another line.
-        if (!free || tickCount < nextMeetLine || isSinging() || getMood() == Mood.SLEEP || getSayUntil() > level.getGameTime()) {
+        if (!free || tickCount < nextMeetLine || isSinging() || asleep() || getSayUntil() > level.getGameTime()) {
             return;
         }
         String said = null;
@@ -4155,11 +4573,8 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
         if (mob instanceof Panda) {
             return "panda";
         }
-        if (mob instanceof MagmaCube) {
-            return "magma_cube";
-        }
-        if (mob instanceof Slime) {
-            return "slime";
+        if (mob.is(KOLOBOK_KIN)) {
+            return mob instanceof MagmaCube ? "magma_cube" : "slime";
         }
         if (mob instanceof WitherSkeleton) {
             return distanceToSqr(mob) >= KOSCHEI_SAFE * KOSCHEI_SAFE ? "koschei" : null;
@@ -4193,7 +4608,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
     private void ownerDeathTick() {
         boolean dead = getOwner() instanceof Player owner && owner.isDeadOrDying()
                 && distanceToSqr(owner) <= OWNER_DEATH_RANGE * OWNER_DEATH_RANGE;
-        if (dead && !ownerDead && getMood() != Mood.SLEEP && !isSheltered()) {
+        if (dead && !ownerDead && !asleep() && !isSheltered()) {
             say("owner_died");
         }
         ownerDead = dead;
@@ -4215,7 +4630,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
                 break;
             }
         }
-        if (playing != null && !playing.equals(pigstepHeard) && !isSinging() && getMood() != Mood.SLEEP) {
+        if (playing != null && !playing.equals(pigstepHeard) && !isSinging() && !asleep()) {
             say("pigstep");
         }
         pigstepHeard = playing;
@@ -4336,7 +4751,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
 
         private boolean visiting() {
             KState state = getKState();
-            return isTame() && (state == KState.FOLLOW || state == KState.WANDER) && !isSinging() && hop == null;
+            return isTame() && !ownerAway && (state == KState.FOLLOW || state == KState.WANDER) && !isSinging() && hop == null;
         }
 
         @Override
@@ -4822,7 +5237,7 @@ public class KolobokEntity extends TamableAnimal implements InventoryCarrier {
             KState state = getKState();
             // Shifted by the id as vanilla shifts the ticks it looks at goals on, or half of all Kolobki
             // would never get here.
-            if ((tickCount + getId()) % 20 != 0 || !(level() instanceof ServerLevel level) || !foxMayHunt() || isSinging()
+            if ((tickCount + getId()) % 20 != 0 || !(level() instanceof ServerLevel level) || !foxMayHunt() || isSinging() || ownerAway
                     || random.nextInt(FOX_CURIOSITY_CHANCE) != 0
                     || !(state == KState.FOLLOW || state == KState.WANDER || state == KState.RUNAWAY)) {
                 return false;

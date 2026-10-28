@@ -51,6 +51,12 @@ public class BindleItem extends Item {
     /** What the game saves about where he was in the world rather than about him. */
     private static final List<String> PLACE = List.of("UUID", "Pos", "Motion", "Rotation", "fall_distance", "OnGround",
             "PortalCooldown");
+    /**
+     * The most a Kolobok in a bindle may weigh, in bytes of his saved data. The bindle goes to every
+     * client that sees it, which reads at most 2 MiB of such data in one go; a Kolobok is a few
+     * kilobytes, his cheeks full of books a lot more.
+     */
+    private static final int MAX_BYTES = 256 * 1024;
 
     public BindleItem(Item.Properties properties) {
         super(properties);
@@ -68,16 +74,37 @@ public class BindleItem extends Item {
     }
 
     /**
+     * A bindle holds things itself: it goes in no shulker box or bundle, as a shulker box goes in no
+     * other, or one item could hold boxes of bindles of boxes past what a client can be sent.
+     */
+    @Override
+    public boolean canFitInsideContainerItems() {
+        return false;
+    }
+
+    /**
+     * @return whether that Kolobok is light enough for a bindle; one with his cheeks stuffed with
+     *         books is not
+     */
+    public static boolean fits(KolobokEntity kolobok) {
+        return save(kolobok).sizeInBytes() <= MAX_BYTES;
+    }
+
+    /**
      * Saves that Kolobok into the bindle. Taking him out of the world is the caller's business.
      */
     public static void store(ItemStack bindle, KolobokEntity kolobok) {
+        bindle.set(KComponents.STORED_KOLOBOK.get(), new StoredKolobok(CustomData.of(save(kolobok)),
+                Optional.ofNullable(kolobok.getCustomName()), kolobok.getVariant(), kolobok.verses().size()));
+    }
+
+    private static CompoundTag save(KolobokEntity kolobok) {
         try (ProblemReporter.ScopedCollector reporter = new ProblemReporter.ScopedCollector(kolobok.problemPath(), Kolobok.LOG)) {
             TagValueOutput output = TagValueOutput.createWithContext(reporter, kolobok.registryAccess());
             kolobok.saveWithoutId(output);
             CompoundTag tag = output.buildResult();
             PLACE.forEach(tag::remove);
-            bindle.set(KComponents.STORED_KOLOBOK.get(), new StoredKolobok(CustomData.of(tag),
-                    Optional.ofNullable(kolobok.getCustomName()), kolobok.getVariant(), kolobok.verses().size()));
+            return tag;
         }
     }
 
@@ -97,8 +124,8 @@ public class BindleItem extends Item {
             kolobok.setUUID(UUID.randomUUID());
             kolobok.snapTo(at.x, at.y, at.z, yaw, 0.0F);
             kolobok.outOfBindle();
-            level.addFreshEntity(kolobok);
-            return kolobok;
+            // Another mod may keep him out of the world; then the bindle keeps him.
+            return level.addFreshEntity(kolobok) ? kolobok : null;
         }
     }
 

@@ -25,6 +25,9 @@
         ],
         "rei_client": [
             "ru.bagomot.kolobok.compat.rei.KolobokReiPlugin"
+        ],
+        "rei_common": [
+            "ru.bagomot.kolobok.compat.rei.KolobokReiCommonPlugin"
         ]
     },
     "mixins": [
@@ -32,7 +35,7 @@
     ],
     "depends": {
         "fabricloader": "${loader_range}",
-        "fabric-api": "*",
+        "fabric-api": "${fabric_api_range}",
         "minecraft": "${minecraft_range}",
         "java": ">=${java_version}"
     }

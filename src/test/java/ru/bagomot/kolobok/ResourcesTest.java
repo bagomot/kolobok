@@ -1,12 +1,16 @@
 package ru.bagomot.kolobok;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import org.junit.jupiter.api.Test;
 import ru.bagomot.kolobok.advancement.Tale;
 import ru.bagomot.kolobok.block.StovePart;
+import ru.bagomot.kolobok.block.StovePattern;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Perk;
@@ -22,7 +26,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
@@ -64,6 +70,37 @@ class ResourcesTest {
             assertTrue(e.getValue().contains("0"), "no level-0 line in ru_ru for " + e.getKey());
             assertTrue(en.get(e.getKey()).contains("0"), "no level-0 line in en_us for " + e.getKey());
         }
+    }
+
+    /**
+     * Every text but his lines, which each language writes for itself, is in every language, with the
+     * same placeholders in the same order.
+     */
+    @Test
+    void everyTextIsInEveryLanguageWithTheSamePlaceholders() throws IOException {
+        JsonObject ru = json("assets/kolobok/lang/ru_ru.json");
+        JsonObject en = json("assets/kolobok/lang/en_us.json");
+        Set<String> ruKeys = new TreeSet<>(ru.keySet());
+        Set<String> enKeys = new TreeSet<>(en.keySet());
+        ruKeys.removeIf(key -> key.startsWith("kolobok.say."));
+        enKeys.removeIf(key -> key.startsWith("kolobok.say."));
+        assertEquals(ruKeys, enKeys);
+        Pattern placeholder = Pattern.compile("%(?:\\d+\\$)?[sd]");
+        for (String key : ru.keySet()) {
+            if (en.has(key)) {
+                assertEquals(placeholders(placeholder, en.get(key).getAsString()), placeholders(placeholder, ru.get(key).getAsString()),
+                        key);
+            }
+        }
+    }
+
+    private static List<String> placeholders(Pattern placeholder, String text) {
+        List<String> found = new java.util.ArrayList<>();
+        Matcher matcher = placeholder.matcher(text);
+        while (matcher.find()) {
+            found.add(matcher.group());
+        }
+        return found;
     }
 
     @Test
@@ -152,14 +189,17 @@ class ResourcesTest {
         while (call.find()) {
             Matcher word = Pattern.compile("\"([a-z_]+)\"").matcher(call.group(1));
             while (word.find()) {
-                // A prefix the code completes ("dress_" and the hat) is checked by the hats' own test.
+                // A prefix the code completes ("dress_" and the hat, "mode_" and the mode) is checked below.
                 if (!word.group(1).endsWith("_")) {
                     said.add(word.group(1));
                 }
             }
         }
-        // What he says on meeting a mob and on new лапти, these methods return; every word in them is a line.
-        for (String picker : List.of("String meeting(", "String laptiLine(")) {
+        // What he says on meeting a mob, on new лапти, to food he will not eat and about what he sees
+        // behind his owner, these methods pick; what he answers about the way, that one keeps for
+        // later. Every word in them is a line.
+        for (String picker : List.of("String meeting(", "String laptiLine(", "String refusalFor(", "void watchBehind(",
+                "InteractionResult showTheWay(")) {
             int start = code.indexOf(picker);
             assertTrue(start >= 0, picker);
             Matcher word = Pattern.compile("\"([a-z_]+)\"").matcher(code.substring(start, code.indexOf("\n    }\n", start)));
@@ -168,8 +208,21 @@ class ResourcesTest {
                 said.add(word.group(1));
                 found++;
             }
-            assertTrue(found >= 3, picker + " picks only " + found);
+            assertTrue(found >= 2, picker + " picks only " + found);
         }
+        for (Outfit.Hat hat : Outfit.Hat.values()) {
+            if (hat != Outfit.Hat.NONE) {
+                said.add("dress_" + hat.name().toLowerCase(Locale.ROOT));
+            }
+        }
+        int modes = code.indexOf("private void nextMode(");
+        Matcher mode = Pattern.compile("mode = \"([a-z_]+)\"").matcher(code.substring(modes, code.indexOf("\n    }\n", modes)));
+        int found = 0;
+        while (mode.find()) {
+            said.add("mode_" + mode.group(1));
+            found++;
+        }
+        assertEquals(4, found, "four modes");
         assertTrue(said.size() > 50, "found only " + said);
         Map<String, Set<String>> ru = categories(json("assets/kolobok/lang/ru_ru.json"));
         Map<String, Set<String>> en = categories(json("assets/kolobok/lang/en_us.json"));
@@ -444,19 +497,37 @@ class ResourcesTest {
         }
         assertEquals(listed, entries, "the written book and Modonomicon have the same entries");
         assertTrue(layout, "the stove's layout page is there");
+        // Modonomicon reads a dense pattern as pattern[layer][x].charAt(z), its first layer on top. The
+        // bricks, counted from the furnace facing south, must be where the stove's own parts are.
         JsonObject stove = json("data/kolobok/modonomicon/multiblocks/stove.json");
-        int bricks = 0;
-        int furnaces = 0;
-        for (JsonElement layer : stove.getAsJsonArray("pattern")) {
-            for (JsonElement row : layer.getAsJsonArray()) {
-                for (char c : row.getAsString().toCharArray()) {
-                    bricks += c == 'B' ? 1 : 0;
-                    furnaces += c == '0' ? 1 : 0;
+        assertEquals("minecraft:furnace[facing=south]",
+                stove.getAsJsonObject("mapping").getAsJsonObject("0").get("block").getAsString());
+        JsonArray layers = stove.getAsJsonArray("pattern");
+        Set<BlockPos> bricks = new HashSet<>();
+        BlockPos furnace = null;
+        for (int layer = 0; layer < layers.size(); layer++) {
+            JsonArray lines = layers.get(layer).getAsJsonArray();
+            for (int x = 0; x < lines.size(); x++) {
+                String line = lines.get(x).getAsString();
+                for (int z = 0; z < line.length(); z++) {
+                    BlockPos cell = new BlockPos(x, layers.size() - 1 - layer, z);
+                    if (line.charAt(z) == 'B') {
+                        bricks.add(cell);
+                    } else if (line.charAt(z) == '0') {
+                        assertEquals(null, furnace, "one furnace, the centre");
+                        furnace = cell;
+                    }
                 }
             }
         }
-        assertEquals(12, bricks, "the stove takes 12 bricks");
-        assertEquals(1, furnaces, "and one furnace, the centre");
+        assertNotNull(furnace, "the furnace, the centre");
+        Set<BlockPos> parts = new HashSet<>();
+        for (StovePart part : StovePart.values()) {
+            if (part != StovePart.MOUTH) {
+                parts.add(StovePattern.posOf(furnace, Direction.SOUTH, part));
+            }
+        }
+        assertEquals(parts, bricks, "the book's stove is the stove the rolling pin builds");
         inEveryLanguage(keys);
         json("data/kolobok/recipe/guide_book.json");
     }

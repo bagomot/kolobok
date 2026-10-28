@@ -2,16 +2,19 @@
   "type": "modonomicon:dense",
   "pattern": [
     [
-      "__B",
-      "___"
+      "__",
+      "__",
+      "B_"
     ],
     [
-      "BBB",
-      "BBB"
+      "BB",
+      "BB",
+      "BB"
     ],
     [
-      "BBB",
-      "B0B"
+      "BB",
+      "B0",
+      "BB"
     ]
   ],
   "mapping": {

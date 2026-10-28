@@ -36,12 +36,14 @@ public final class Song {
     private final List<Sample> samples;
     private final double[] lineStarts;
     private final double seconds;
+    private final double eighth;
 
-    private Song(List<Melody.Line> lines, List<Sample> samples, double[] lineStarts, double seconds) {
+    private Song(List<Melody.Line> lines, List<Sample> samples, double[] lineStarts, double seconds, double eighth) {
         this.lines = lines;
         this.samples = samples;
         this.lineStarts = lineStarts;
         this.seconds = seconds;
+        this.eighth = eighth;
     }
 
     /**
@@ -77,7 +79,7 @@ public final class Song {
             }
         }
         samples.sort(Comparator.comparingDouble(Sample::time));
-        return new Song(lines, Collections.unmodifiableList(samples), lineStarts, end + TAIL_SECONDS);
+        return new Song(lines, Collections.unmodifiableList(samples), lineStarts, end + TAIL_SECONDS, eighth);
     }
 
     public List<Melody.Line> lines() {
@@ -93,6 +95,13 @@ public final class Song {
 
     public double seconds() {
         return seconds;
+    }
+
+    /**
+     * @return how long an eighth lasts in this song, in seconds: his voice sets the tempo
+     */
+    public double eighthSeconds() {
+        return eighth;
     }
 
     /**

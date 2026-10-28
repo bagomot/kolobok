@@ -699,5 +699,14 @@
         "pitch": 1.2
       }
     ]
+  },
+  "squeak": {
+    "subtitle": "subtitles.kolobok.squeak",
+    "sounds": [
+      {
+        "name": "kolobok:voice/i",
+        "pitch": 1.8
+      }
+    ]
   }
 }

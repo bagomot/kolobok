@@ -13,6 +13,8 @@ import net.neoforged.neoforge.event.entity.living.LivingIncomingDamageEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.level.BlockDropsEvent;
+import net.neoforged.neoforge.event.server.ServerStoppedEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.registries.RegisterEvent;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -37,7 +39,8 @@ public final class KolobokNeoForge {
                 KolobokEvents.onEntityLoad(event.getEntity());
             }
         });
-        // Picked by a player: the drops are about to fall, the block is gone or going.
+        // Picked by a player: the drops are about to fall, the block is gone or going. Never in
+        // creative, which drops nothing.
         NeoForge.EVENT_BUS.addListener(BlockDropsEvent.class, event -> {
             if (event.getBreaker() instanceof Player player) {
                 KolobokEvents.onBlockBroken(event.getLevel(), player, event.getPos(), event.getState());
@@ -58,6 +61,9 @@ public final class KolobokNeoForge {
                 event.setCanceled(true);
             }
         });
+        // Before the levels tick.
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Pre.class, event -> KolobokEvents.onServerTickStart(event.getServer()));
+        NeoForge.EVENT_BUS.addListener(ServerStoppedEvent.class, event -> KolobokEvents.onServerStopped(event.getServer()));
     }
 
     private static void register(RegisterEvent event) {

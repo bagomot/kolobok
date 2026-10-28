@@ -3,24 +3,31 @@ package ru.bagomot.kolobok.block;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.TagKey;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.AbstractFurnaceBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
+import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 import ru.bagomot.kolobok.registry.KBlocks;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Where the thirteen blocks of the stove stand, and turning vanilla blocks into the stove and back.
@@ -43,7 +50,11 @@ public final class StovePattern {
     public static final int GORNILO_SPOT = 9;
     /** The coals start this deep. */
     public static final int COALS_FROM = 17;
-    /** Glass this close to the stove is a window: a fresh Kolobok cools on it four times faster. */
+    /**
+     * Glass this close to any block of the stove is a window: a fresh Kolobok cools by it four times
+     * faster. Counted from the whole box the stove fills, three blocks across, two deep and three high
+     * with the chimney, so the glass may be anywhere in a box 7 across, 6 deep and 7 high.
+     */
     private static final int WINDOW_REACH = 2;
 
     private static final TagKey<Block> GLASS_BLOCKS =
@@ -100,10 +111,20 @@ public final class StovePattern {
     }
 
     /**
-     * Turns the checked furnace and bricks into the stove, facing where the furnace faced.
+     * Turns the checked furnace and bricks into the stove, facing where the furnace faced, unless
+     * {@code mayChange} refuses any of the thirteen blocks: then nothing is changed at all. A name the
+     * furnace was given on an anvil stays with the stove, to come back with the furnace.
+     *
+     * @return the stove's facing, or {@code null} if a block was refused
      */
-    public static void assemble(ServerLevel level, BlockPos furnacePos) {
+    public static @Nullable Direction assemble(ServerLevel level, BlockPos furnacePos, Predicate<BlockPos> mayChange) {
         Direction facing = level.getBlockState(furnacePos).getValue(AbstractFurnaceBlock.FACING);
+        for (StovePart part : StovePart.values()) {
+            if (!mayChange.test(posOf(furnacePos, facing, part))) {
+                return null;
+            }
+        }
+        Component name = level.getBlockEntity(furnacePos) instanceof BaseContainerBlockEntity furnace ? furnace.getCustomName() : null;
         StovePartBlock block = KBlocks.STOVE_PART.get();
         rebuilding = true;
         try {
@@ -116,12 +137,18 @@ public final class StovePattern {
         } finally {
             rebuilding = false;
         }
+        if (name != null && level.getBlockEntity(furnacePos) instanceof StoveBlockEntity stove) {
+            stove.setFurnaceName(name);
+        }
+        return facing;
     }
 
     /**
-     * Called when one part has gone, however it went: every other part turns back into the block it
-     * was built from, without dropping anything. The part that went drops its own block through its
-     * loot table.
+     * Called when one part has gone, however it went, and for a stove found damaged, its blocks
+     * changed by something that skips the removal hook, such as a command: every other part turns
+     * back into the block it was built from, without dropping anything, and the furnace gets its name
+     * back. The part that went drops its own block through its loot table; the mouth drops the
+     * furnace with the name.
      */
     static void disassemble(ServerLevel level, BlockPos removedAt, BlockState removed) {
         if (rebuilding) {
@@ -129,6 +156,7 @@ public final class StovePattern {
         }
         Direction facing = removed.getValue(StovePartBlock.FACING);
         BlockPos mouth = mouthOf(removedAt, facing, removed.getValue(StovePartBlock.PART));
+        Component name = level.getBlockEntity(mouth) instanceof StoveBlockEntity stove ? stove.furnaceName() : null;
         rebuilding = true;
         try {
             for (StovePart part : StovePart.values()) {
@@ -140,14 +168,13 @@ public final class StovePattern {
         } finally {
             rebuilding = false;
         }
-    }
-
-    /**
-     * Takes a damaged stove apart: one whose blocks were changed by something that skips the removal
-     * hook, such as a command.
-     */
-    static void disassembleDamaged(ServerLevel level, BlockPos mouth, BlockState mouthState) {
-        disassemble(level, mouth, mouthState);
+        if (name != null && level.getBlockEntity(mouth) instanceof AbstractFurnaceBlockEntity furnace) {
+            // As a named furnace placed from the hand takes its name.
+            ItemStack named = new ItemStack(Items.FURNACE);
+            named.set(DataComponents.CUSTOM_NAME, name);
+            furnace.applyComponentsFromItemStack(named);
+            furnace.setChanged();
+        }
     }
 
     /**
@@ -234,9 +261,30 @@ public final class StovePattern {
     public static List<Vec3> topSlots(BlockPos mouth, Direction facing) {
         List<Vec3> slots = new ArrayList<>(TOP.size());
         for (StovePart part : TOP) {
-            slots.add(Vec3.atBottomCenterOf(posOf(mouth, facing, part).above()));
+            slots.add(topPlace(mouth, facing, part));
         }
         return slots;
+    }
+
+    /**
+     * @return the one of the {@link #TOP} blocks whose place is nearest to that point, or {@code null}
+     *         if even that place is farther than {@code within}: the place someone on the stove is on
+     */
+    public static @Nullable StovePart nearestTop(BlockPos mouth, Direction facing, Vec3 point, double within) {
+        StovePart nearest = TOP.getFirst();
+        double best = topPlace(mouth, facing, nearest).distanceToSqr(point);
+        for (StovePart part : TOP) {
+            double distance = topPlace(mouth, facing, part).distanceToSqr(point);
+            if (distance < best) {
+                nearest = part;
+                best = distance;
+            }
+        }
+        return best <= within * within ? nearest : null;
+    }
+
+    private static Vec3 topPlace(BlockPos mouth, Direction facing, StovePart part) {
+        return Vec3.atBottomCenterOf(posOf(mouth, facing, part).above());
     }
 
     /**
@@ -308,7 +356,8 @@ public final class StovePattern {
     }
 
     /**
-     * @return whether there is a window by the stove: glass or a glass pane within two blocks
+     * @return whether there is a window by the stove: glass or a glass pane within two blocks of any
+     *         of its blocks, so anywhere in the 7×6×7 box around it, not only around the mouth
      */
     public static boolean hasWindow(LevelReader level, BlockPos mouth, Direction facing) {
         AABB box = bounds(mouth, facing).inflate(WINDOW_REACH);

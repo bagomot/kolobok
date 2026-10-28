@@ -14,7 +14,8 @@ import java.util.Locale;
  * stressed. The consonant run is not reset by spaces: «от за'йца» sings «о-СА».
  *
  * <p>Latin letters are mapped to the same groups, for mumbling lines in non-Russian languages and for
- * mobs from other mods named in Latin; an unmarked word gets no stress.
+ * mobs from other mods named in Latin; an unmarked word gets no stress, so the song marks such a mob
+ * itself.
  */
 public final class Phonetics {
 
@@ -60,6 +61,25 @@ public final class Phonetics {
             }
         }
         return out;
+    }
+
+    /**
+     * @return where in the text the vowel of its syllable number {@code n} is, counting from 0, or -1
+     *         if it has no more syllables than that
+     */
+    static int vowelAt(String text, int n) {
+        int count = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char ch = Character.toLowerCase(text.charAt(i));
+            // As in syllables(): «y» before a vowel is a glide.
+            if (ch == 'y' && i + 1 < text.length() && vowel(Character.toLowerCase(text.charAt(i + 1))) != 0) {
+                continue;
+            }
+            if (vowel(ch) != 0 && count++ == n) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /**

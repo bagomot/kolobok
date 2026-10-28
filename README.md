@@ -17,9 +17,9 @@ For Minecraft 26.3 on NeoForge and Fabric. English and Russian.
 - **Verses and perks.** Every mob he gets away from adds a verse to his song and teaches him something: a hare makes him faster, a creeper makes explosions harmless, a spider lets him climb walls, sixteen verse perks in all. The songbook writes down his song and perks.
 - **A companion.** He follows you, sits, keeps guard or wanders, climbs onto your shoulder, where he watches your back for creepers and skeletons, or onto your head, where he takes a falling anvil for you, and talks in speech bubbles. His jokes were written separately in English and in Russian, not translated.
 - **The fox** hunts him and carries him off in its teeth. Throw it some berries.
-- **Outfits.** Any helmet becomes a bogatyr's helmet or an ushanka on him, boots become bast shoes, tinted glass becomes sunglasses, and he has a crown, a wreath and a kokoshnik of his own, which you can wear too. Sometimes, asleep in a metal helmet, he dreams he is the giant Head from Pushkin's «Ruslan and Ludmila». Tickle him with a feather.
+- **Outfits.** Any helmet becomes a bogatyr's helmet or an ushanka on him, boots become bast shoes, tinted glass becomes sunglasses, and he has a crown, a wreath and a kokoshnik of his own, which you can wear too. Sometimes, asleep in a metal helmet, he dreams he is the giant Head from Pushkin's «Ruslan and Ludmila». Tickle him with a feather: he squeaks, and the Head sneezes.
 - **Skills.** Carry him in a bindle, call him with a goat horn, bowl mobs over with him, let him fill his cheeks with loot and bring it home, follow his bread crumbs back, pay an emerald for the way to a village. And the chicken jockey.
-- **Care.** Milk and honey keep him fresh; without them he goes stale. Rain makes him soggy, fire gives him a tan. Death is final, so look after him.
+- **Care.** Milk and honey keep him fresh; without them he goes stale. Rain makes him soggy, fire gives him a tan. Death is final, so look after him. While you are away from the server he dozes and keeps to himself, though he still runs from danger.
 - **27 advancements** in a tab of their own, «The Tale of Kolobok», with a `kolobok:tale` criterion trigger for data packs.
 - **A guide book**, «How to Bake a Kolobok», for every player on first joining: just what you would hardly work out alone, the stove's layout included. Lost it? A book and a brick make another.
 
@@ -58,8 +58,8 @@ Everything else is in the guide book.
 | Action | What happens |
 |---|---|
 | Right-click with an empty hand | sit, or follow you |
-| Shift-right-click with an empty hand | onto your shoulder, then onto your head, then down |
-| Press Shift twice quickly | get him off your shoulder or head |
+| Shift-right-click with an empty hand | onto your shoulder, then onto your head, then down; a hungry owner (food at 6 or less) bites a sitting one instead |
+| Press Shift twice quickly | get him off your shoulder or head; he will not jump where he would break, as off a cliff or while you glide |
 | Right-click with the rolling pin | switch mode: follow, follow dropping crumbs, guard, wander |
 | Right-click the air with the rolling pin | bowling: your nearest Kolobok rolls where you look |
 | Shift-right-click with the rolling pin | he spits out what is in his cheeks |
@@ -70,7 +70,12 @@ Everything else is in the guide book.
 | Right-click with shears | take things off one at a time |
 | Right-click with an empty bindle | he climbs in; right-click a block to let him out |
 | Blow a goat horn | all your Kolobki within 64 blocks come to you |
-| Right-click with an emerald | he shows the way to the nearest village |
+| Right-click with an emerald | he shows the way to the nearest village, once a game day |
+| Right-click with a feather | tickle him |
+| Right-click the stove with an empty hand | take out what is in the oven; with anything it does not take, see what is in it |
+| Shift-right-click the stove with both hands empty | take the logs back |
+
+He sits on one player at a time, and a player carries one Kolobok: another one will not climb on, he takes offence. On your shoulder or head he goes with you wherever you go, through portals and teleports included; on his own he never steps into a portal. In water, lava or any other fluid he jumps off at once.
 
 ## Mod integrations
 
@@ -86,7 +91,7 @@ EMI and Patchouli have no build for 26.3 yet.
 
 Both files are created in `config/kolobok/` on first launch; new settings are added to old files without touching your values.
 
-`client.json`: how many internet memes his lines may have (`memeLevel`), how chatty he is (`chattiness`), where his lines show (`speech`: bubbles, chat or both), his voice volume (`voiceVolume`), and whether to show his bread crumbs (`crumbs`).
+`client.json`: how many internet memes his lines may have (`memeLevel`), how chatty he is (`chattiness`), where his lines show (`speech`: bubbles, chat or both; only your own Kolobki write in chat, anyone else's talk in bubbles), his voice volume (`voiceVolume`), and whether to show his bread crumbs (`crumbs`).
 
 `server.json`: the taming chance (`tameChanceDenominator`), and switches for foxes hunting him (`foxHunting`), running off to sing to animals (`escapades`), drawing mobs off his owner (`luring`), a song annoying mobs nearby (`annoyingSong`), biting him (`biting`), the chicken jockey (`chickenJockey`), the beetroot bonus (`repka`), days until he goes stale (`staleDays`), how far the way to a village is searched (`guideSearchChunks`) and the guide book on first joining (`guideBook`).
 

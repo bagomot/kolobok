@@ -25,7 +25,7 @@ import java.util.function.Supplier;
  * hang off {@code body}, in front of the face, and roll with it. A лапоть stands on the ground under
  * one half of him.
  *
- * <p>{@code tools/textures/GenOutfits.java} draws the textures; it follows the box layouts here.
+ * <p>{@code tools/outfits/GenOutfits.java} draws the textures; it follows the box layouts here.
  */
 public final class OutfitModels {
 

@@ -27,7 +27,6 @@ import ru.bagomot.kolobok.registry.KItems;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /**
  * What JEI and REI show, the same in both: the stove baking raw Kolobok, a page of hints on each of
@@ -62,8 +61,7 @@ public final class Hints {
         /** @return the line under the recipe: the time and the condition */
         public List<Component> notes() {
             List<Component> notes = new ArrayList<>();
-            int seconds = StoveBlockEntity.BAKE_TICKS / 20;
-            notes.add(Component.literal(String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60)));
+            notes.add(Component.literal(StoveBlockEntity.time(StoveBlockEntity.BAKE_TICKS)));
             if (condition != null) {
                 notes.add(Component.translatable(condition));
             }

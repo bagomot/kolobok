@@ -5,10 +5,12 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.UUIDUtil;
+import net.minecraft.core.component.DataComponentMap;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.ComponentSerialization;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
@@ -20,6 +22,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.util.Mth;
 import net.minecraft.util.Prediction;
+import net.minecraft.util.ProblemReporter;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionHand;
@@ -28,6 +31,7 @@ import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.entity.EntitySpawnReason;
 import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUtils;
 import net.minecraft.world.item.Items;
@@ -42,6 +46,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.gameevent.GameEvent;
+import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.level.storage.loot.LootContext;
@@ -51,6 +56,7 @@ import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.level.storage.loot.providers.number.ints.ResolvableInt;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
+import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.advancement.Tale;
 import ru.bagomot.kolobok.advancement.TaleTrigger;
 import ru.bagomot.kolobok.entity.KolobokEntity;
@@ -63,16 +69,19 @@ import ru.bagomot.kolobok.registry.KItems;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.function.Consumer;
 
 /**
  * The stove's insides, kept by the mouth: the firewood in the подпечье, whatever is in the горнило
  * and the fire. No screen: right-clicks put things in, an empty hand takes out what is done and shows
- * the rest above the hotbar, and Shift with an empty hand takes the firewood back.
+ * the rest above the hotbar, and Shift with empty hands takes the firewood back. Anything else in the
+ * hand only shows that, as a furnace opens its screen whatever the hand holds.
  *
  * <p>The подпечье holds up to a stack of logs of one kind. Flint and steel or a fire charge in the
  * горнило lights the stove, and it burns log after log, each as long as it would in a furnace, until
@@ -119,12 +128,23 @@ public class StoveBlockEntity extends BlockEntity {
     private @Nullable UUID baker;
     /** When the fire last burned, for the warmth. */
     private long lastBurned = Long.MIN_VALUE / 2;
+    /** The name the furnace was given on an anvil, for when it is a furnace again. */
+    private @Nullable Component furnaceName;
 
     /** Client: game time the fire and progress were last synced at, to run them on between syncs. */
     private long syncedAt;
 
     public StoveBlockEntity(BlockPos pos, BlockState state) {
         super(KBlockEntities.STOVE.get(), pos, state);
+    }
+
+    public @Nullable Component furnaceName() {
+        return furnaceName;
+    }
+
+    void setFurnaceName(@Nullable Component name) {
+        furnaceName = name;
+        setChanged();
     }
 
     public Direction facing() {
@@ -240,7 +260,7 @@ public class StoveBlockEntity extends BlockEntity {
         }
         // Once a second, and on the tick the fire goes out: a cold stove has no ticker to notice later.
         if ((level.getGameTime() % 20 == 0 || stove.burn <= 1) && !StovePattern.isIntact(level, pos, stove.facing())) {
-            StovePattern.disassembleDamaged(serverLevel, pos, state);
+            StovePattern.disassemble(serverLevel, pos, state);
             return;
         }
         if (stove.logTicks <= 0 && !stove.logs.isEmpty()) {
@@ -257,7 +277,9 @@ public class StoveBlockEntity extends BlockEntity {
         if (stove.hasWork() && ++stove.progress >= stove.total) {
             stove.finish(serverLevel);
         }
-        stove.setChanged();
+        // Saved with its chunk, but no neighbour needs to hear of every tick; real changes go through
+        // sync(), which tells them.
+        level.blockEntityChanged(pos);
     }
 
     /**
@@ -384,29 +406,110 @@ public class StoveBlockEntity extends BlockEntity {
     }
 
     /**
-     * Logs go into the подпечье, a raw Kolobok or food into the горнило, lava or a blaze rod into the
-     * fire for heat. On the client every candidate is accepted, so that food is never eaten instead;
-     * the server has the last word.
+     * @return whether the stove takes that from a hand: logs, a raw Kolobok, lava or a blaze rod for
+     *         heat, food, and through the устье flint and steel or a fire charge. Any food counts, on
+     *         the client too, so that none is ever eaten instead; the server has the last word.
      */
-    InteractionResult useItem(ItemStack stack, Player player, InteractionHand hand) {
-        boolean log = stack.is(ItemTags.LOGS_THAT_BURN);
-        boolean raw = stack.is(KItems.RAW_KOLOBOK.get());
-        boolean heat = stack.is(Items.LAVA_BUCKET) || stack.is(Items.BLAZE_ROD);
-        boolean food = stack.has(DataComponents.FOOD);
-        if (!log && !raw && !heat && !food) {
-            return InteractionResult.TRY_WITH_EMPTY_HAND;
+    private static boolean takes(ItemStack stack, boolean throughMouth) {
+        return throughMouth && isIgniter(stack) || stack.is(ItemTags.LOGS_THAT_BURN) || stack.is(KItems.RAW_KOLOBOK.get())
+                || isHeat(stack) || stack.has(DataComponents.FOOD);
+    }
+
+    private static boolean isHeat(ItemStack stack) {
+        return stack.is(Items.LAVA_BUCKET) || stack.is(Items.BLAZE_ROD);
+    }
+
+    /**
+     * A click with something in the hand. What the stove takes goes in, or lights it; anything else
+     * only shows the status and takes nothing out, as a furnace opens its screen whatever the hand
+     * holds. With such a thing in the main hand, the off hand has its turn here: the main hand has
+     * the click, so vanilla would never give the off hand one.
+     *
+     * @param throughMouth whether the click is on the устье: the mouth's block or the one above it
+     */
+    InteractionResult useItem(ItemStack stack, Player player, InteractionHand hand, boolean throughMouth) {
+        if (takes(stack, throughMouth)) {
+            return click(serverLevel -> put(serverLevel, stack, player, hand, throughMouth));
         }
+        return hand == InteractionHand.MAIN_HAND
+                ? click(serverLevel -> offHandOrStatus(serverLevel, player, throughMouth))
+                : InteractionResult.PASS;
+    }
+
+    /**
+     * An empty hand takes out what is in the горнило: the cooked food with its experience, or what was
+     * put in and has not been cooked yet. With Shift, which vanilla lets through only with both hands
+     * empty, it takes the firewood back. With nothing to take, the off hand has its turn.
+     */
+    InteractionResult useEmptyHand(Player player, boolean throughMouth) {
+        return click(serverLevel -> {
+            if (player.isShiftKeyDown() && !logs.isEmpty()) {
+                give(player, logs);
+                logs = ItemStack.EMPTY;
+            } else if (!player.isShiftKeyDown() && !oven.isEmpty()) {
+                if (cooked && experience > 0.0F) {
+                    award(serverLevel, player.position(), experience);
+                }
+                give(player, oven);
+                oven = ItemStack.EMPTY;
+                cooked = false;
+                experience = 0.0F;
+                progress = 0;
+                total = 0;
+            } else {
+                offHandOrStatus(serverLevel, player, throughMouth);
+                return;
+            }
+            playSound(SoundEvents.ITEM_PICKUP, 0.3F);
+            sync();
+            player.sendOverlayMessage(status());
+        });
+    }
+
+    /**
+     * The main hand did nothing: what the stove takes from the off hand goes in, but food only if the
+     * stove cooks it, since an off hand often just holds something to eat. Otherwise the click shows
+     * the status.
+     */
+    private void offHandOrStatus(ServerLevel serverLevel, Player player, boolean throughMouth) {
+        ItemStack offHand = player.getOffhandItem();
+        if (takes(offHand, throughMouth) && (!offHand.has(DataComponents.FOOD) || recipeFor(serverLevel, offHand).isPresent())) {
+            put(serverLevel, offHand, player, InteractionHand.OFF_HAND, throughMouth);
+        } else {
+            player.sendOverlayMessage(status());
+        }
+    }
+
+    /**
+     * Every click starts the same: the client only predicts it, and a stove found damaged, its blocks
+     * changed by something that skips the removal hook such as a command, comes apart instead.
+     */
+    private InteractionResult click(Consumer<ServerLevel> action) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return InteractionResult.SUCCESS;
         }
-        if (!StovePattern.isIntact(level, worldPosition, facing())) {
-            StovePattern.disassembleDamaged(serverLevel, worldPosition, getBlockState());
-            return InteractionResult.SUCCESS_SERVER;
+        if (StovePattern.isIntact(serverLevel, worldPosition, facing())) {
+            action.accept(serverLevel);
+        } else {
+            StovePattern.disassemble(serverLevel, worldPosition, getBlockState());
         }
+        return InteractionResult.SUCCESS_SERVER;
+    }
+
+    /**
+     * Logs go into the подпечье, a raw Kolobok or food into the горнило, lava or a blaze rod into the
+     * fire for heat, and flint and steel or a fire charge through the устье lights the stove.
+     */
+    private void put(ServerLevel serverLevel, ItemStack stack, Player player, InteractionHand hand, boolean throughMouth) {
+        if (throughMouth && isIgniter(stack)) {
+            ignite(serverLevel, stack, player, hand);
+            return;
+        }
+        boolean heat = isHeat(stack);
         Component refusal;
-        if (log) {
+        if (stack.is(ItemTags.LOGS_THAT_BURN)) {
             refusal = addLogs(serverLevel, stack, player);
-        } else if (raw) {
+        } else if (stack.is(KItems.RAW_KOLOBOK.get())) {
             refusal = addRawKolobok(serverLevel, stack, player);
         } else if (heat) {
             refusal = addHeat(stack, player, hand);
@@ -415,44 +518,37 @@ public class StoveBlockEntity extends BlockEntity {
         }
         if (refusal != null) {
             player.sendOverlayMessage(refusal);
-            return InteractionResult.SUCCESS_SERVER;
+            return;
         }
         sync();
-        player.sendOverlayMessage(hasWork() && !isLit() ? notLit() : status());
-        return InteractionResult.SUCCESS_SERVER;
+        player.sendOverlayMessage(heat ? Component.translatable("kolobok.stove.too_hot")
+                : hasWork() && !isLit() ? notLit() : status());
     }
 
     /**
      * Flint and steel or a fire charge in the горнило lights the wood in the подпечье.
      */
-    InteractionResult ignite(ItemStack stack, Player player, InteractionHand hand) {
-        if (!(level instanceof ServerLevel serverLevel)) {
-            return InteractionResult.SUCCESS;
-        }
-        if (!StovePattern.isIntact(level, worldPosition, facing())) {
-            StovePattern.disassembleDamaged(serverLevel, worldPosition, getBlockState());
-            return InteractionResult.SUCCESS_SERVER;
-        }
+    private void ignite(ServerLevel serverLevel, ItemStack stack, Player player, InteractionHand hand) {
         Component refusal = null;
         if (isLit()) {
             refusal = Component.translatable("kolobok.stove.already_lit");
         } else if (logs.isEmpty() && burn <= 0) {
             refusal = Component.translatable("kolobok.stove.nothing_to_light");
-        } else if (hasKolobokInside(level)) {
+        } else if (hasKolobokInside(serverLevel)) {
             refusal = Component.translatable("kolobok.stove.kolobok_inside");
         }
         if (refusal != null) {
             player.sendOverlayMessage(refusal);
-            return InteractionResult.SUCCESS_SERVER;
+            return;
         }
         if (burn <= 0) {
             takeLog(serverLevel);
         }
-        StovePattern.setLit(level, worldPosition, facing(), true);
+        StovePattern.setLit(serverLevel, worldPosition, facing(), true);
         boolean charge = stack.is(Items.FIRE_CHARGE);
-        level.playSound(null, worldPosition, charge ? SoundEvents.FIRECHARGE_USE : SoundEvents.FLINTANDSTEEL_USE,
-                SoundSource.BLOCKS, 1.0F, level.getRandom().nextFloat() * 0.4F + 0.8F);
-        level.gameEvent(player, GameEvent.BLOCK_CHANGE, worldPosition);
+        serverLevel.playSound(null, worldPosition, charge ? SoundEvents.FIRECHARGE_USE : SoundEvents.FLINTANDSTEEL_USE,
+                SoundSource.BLOCKS, 1.0F, serverLevel.getRandom().nextFloat() * 0.4F + 0.8F);
+        serverLevel.gameEvent(player, GameEvent.BLOCK_CHANGE, worldPosition);
         if (charge) {
             stack.consume(1, player);
         } else {
@@ -460,7 +556,6 @@ public class StoveBlockEntity extends BlockEntity {
         }
         sync();
         player.sendOverlayMessage(status());
-        return InteractionResult.SUCCESS_SERVER;
     }
 
     /**
@@ -545,8 +640,7 @@ public class StoveBlockEntity extends BlockEntity {
             stack.consume(1, player);
             playSound(SoundEvents.BLAZE_SHOOT, 0.5F);
         }
-        sync();
-        return Component.translatable("kolobok.stove.too_hot");
+        return null;
     }
 
     /**
@@ -579,46 +673,6 @@ public class StoveBlockEntity extends BlockEntity {
      */
     public boolean canTakeVisitor() {
         return level != null && !isLit() && oven.isEmpty() && !hasKolobokInside(level);
-    }
-
-    /**
-     * An empty hand takes out what is in the горнило: the cooked food with its experience, or what was
-     * put in and has not been cooked yet. With nothing there it shows the status; with Shift it takes
-     * the firewood back.
-     */
-    InteractionResult useEmptyHand(Player player) {
-        if (!(level instanceof ServerLevel serverLevel)) {
-            return InteractionResult.SUCCESS;
-        }
-        if (!StovePattern.isIntact(level, worldPosition, facing())) {
-            StovePattern.disassembleDamaged(serverLevel, worldPosition, getBlockState());
-            return InteractionResult.SUCCESS_SERVER;
-        }
-        if (player.isShiftKeyDown()) {
-            if (logs.isEmpty()) {
-                player.sendOverlayMessage(status());
-                return InteractionResult.SUCCESS_SERVER;
-            }
-            give(player, logs);
-            logs = ItemStack.EMPTY;
-        } else if (!oven.isEmpty()) {
-            if (cooked && experience > 0.0F) {
-                award(serverLevel, player.position(), experience);
-            }
-            give(player, oven);
-            oven = ItemStack.EMPTY;
-            cooked = false;
-            experience = 0.0F;
-            progress = 0;
-            total = 0;
-        } else {
-            player.sendOverlayMessage(status());
-            return InteractionResult.SUCCESS_SERVER;
-        }
-        playSound(SoundEvents.ITEM_PICKUP, 0.3F);
-        sync();
-        player.sendOverlayMessage(status());
-        return InteractionResult.SUCCESS_SERVER;
     }
 
     private static void give(Player player, ItemStack stack) {
@@ -674,6 +728,53 @@ public class StoveBlockEntity extends BlockEntity {
                 : Component.translatable("kolobok.stove.status.cooking", oven.getHoverName(), oven.getCount(), percent);
     }
 
+    // The lines the stove's labels and Jade show, from what the client has.
+
+    /** Ticks as «1:05», minutes and seconds, a second started counting whole. */
+    public static String time(float ticks) {
+        int seconds = Mth.ceil(ticks / 20.0F);
+        return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
+    }
+
+    /**
+     * @return «Дрова: 12/64», the wood in the подпечье out of a stack
+     */
+    public MutableComponent woodLabel() {
+        int max = logs.isEmpty() ? Item.DEFAULT_MAX_STACK_SIZE : logs.getMaxStackSize();
+        return Component.translatable("kolobok.stove.hover.logs", logs.getCount(), max);
+    }
+
+    /**
+     * @return how long the wood lasts while the stove burns, or {@code null} while it is cold
+     */
+    public @Nullable Component fireLabel(float partialTick) {
+        return isLit() ? Component.translatable("kolobok.stove.hover.lasts", time(fireLeft(partialTick))) : null;
+    }
+
+    /**
+     * @return how long until what is in the горнило is done, or {@code null} unless it is cooking now
+     */
+    public @Nullable Component cookLabel(float partialTick) {
+        return isLit() && !oven.isEmpty() && !cooked
+                ? Component.translatable("kolobok.stove.hover.time", time(cookLeft(partialTick)))
+                : null;
+    }
+
+    /**
+     * @return what the горнило tells: done, how long until it is, or that it waits for the fire;
+     *         {@code null} with nothing in it
+     */
+    public @Nullable Component ovenLabel(float partialTick) {
+        if (oven.isEmpty()) {
+            return null;
+        }
+        if (cooked) {
+            return Component.translatable("kolobok.stove.hover.done");
+        }
+        Component cooking = cookLabel(partialTick);
+        return cooking != null ? cooking : Component.translatable("kolobok.stove.hover.waiting");
+    }
+
     private void playSound(SoundEvent sound, float volume) {
         if (level != null) {
             level.playSound(null, worldPosition, sound, SoundSource.BLOCKS, volume, 1.0F);
@@ -716,14 +817,23 @@ public class StoveBlockEntity extends BlockEntity {
         return ClientboundBlockEntityDataPacket.create(this);
     }
 
+    /**
+     * Only what the clients draw and tell, for the renderer, the labels and Jade. Who baked the
+     * Kolobok, the experience owed and the furnace's name stay on the server.
+     */
     @Override
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        return saveCustomOnly(registries);
+        try (ProblemReporter.ScopedCollector reporter = new ProblemReporter.ScopedCollector(problemPath(), Kolobok.LOG)) {
+            TagValueOutput output = TagValueOutput.createWithContext(reporter, registries);
+            saveShown(output);
+            return output.buildResult();
+        }
     }
 
     /**
      * The stove comes apart: the firewood and whatever is in the горнило fall out where the mouth
-     * was. The fire is lost, as in a vanilla furnace.
+     * was, and the experience owed for cooked food is paid out there. As in a vanilla furnace, the
+     * fire is lost and the experience is not.
      */
     @Override
     public void preRemoveSideEffects(BlockPos pos, BlockState state) {
@@ -733,9 +843,20 @@ public class StoveBlockEntity extends BlockEntity {
                     Containers.dropItemStack(level, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack);
                 }
             }
+            if (level instanceof ServerLevel serverLevel && cooked && experience > 0.0F) {
+                award(serverLevel, Vec3.atCenterOf(pos), experience);
+            }
             logs = ItemStack.EMPTY;
             oven = ItemStack.EMPTY;
+            experience = 0.0F;
         }
+    }
+
+    /** The furnace's name, for the furnace the mouth drops: its loot table copies it from here. */
+    @Override
+    protected void collectImplicitComponents(DataComponentMap.Builder components) {
+        super.collectImplicitComponents(components);
+        components.set(DataComponents.CUSTOM_NAME, furnaceName);
     }
 
     @Override
@@ -752,22 +873,29 @@ public class StoveBlockEntity extends BlockEntity {
         tooHot = input.getBooleanOr("too_hot", false);
         baker = input.read("baker", UUIDUtil.CODEC).orElse(null);
         lastBurned = input.getLongOr("last_burned", Long.MIN_VALUE / 2);
+        furnaceName = parseCustomNameSafe(input, "furnace_name");
         syncedAt = level != null ? level.getGameTime() : 0L;
     }
 
     @Override
     protected void saveAdditional(ValueOutput output) {
         super.saveAdditional(output);
+        saveShown(output);
+        output.putFloat("experience", experience);
+        output.storeNullable("baker", UUIDUtil.CODEC, baker);
+        output.storeNullable("furnace_name", ComponentSerialization.CODEC, furnaceName);
+    }
+
+    /** What is saved and also sent to the clients. */
+    private void saveShown(ValueOutput output) {
         output.store("logs", ItemStack.OPTIONAL_CODEC, logs);
         output.putInt("log_ticks", logTicks);
         output.store("oven", ItemStack.OPTIONAL_CODEC, oven);
         output.putBoolean("cooked", cooked);
-        output.putFloat("experience", experience);
         output.putInt("progress", progress);
         output.putInt("total", total);
         output.putInt("burn", burn);
         output.putBoolean("too_hot", tooHot);
-        output.storeNullable("baker", UUIDUtil.CODEC, baker);
         output.putLong("last_burned", lastBurned);
     }
 }

@@ -14,6 +14,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StovePatternTest {
@@ -69,6 +70,18 @@ class StovePatternTest {
             assertNotEquals(chimney, BlockPos.containing(place), "in the chimney");
         }
         assertEquals(Vec3.atBottomCenterOf(MOUTH.above(2)), places.getFirst(), "front middle first");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Direction.class, names = {"NORTH", "EAST", "SOUTH", "WEST"})
+    void theNearestTopPlaceIsTheOneSatOnAndNoneFromTheGround(Direction facing) {
+        List<Vec3> places = StovePattern.topSlots(MOUTH, facing);
+        for (int i = 0; i < places.size(); i++) {
+            Vec3 aside = places.get(i).add(0.2, 0.0, -0.1);
+            assertEquals(StovePattern.TOP.get(i), StovePattern.nearestTop(MOUTH, facing, aside, 0.5));
+        }
+        assertNull(StovePattern.nearestTop(MOUTH, facing, Vec3.atBottomCenterOf(StovePattern.front(MOUTH, facing)), 0.5),
+                "in front of the stove");
     }
 
     @ParameterizedTest

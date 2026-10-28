@@ -10,6 +10,7 @@ import net.minecraft.client.model.geom.builders.MeshDefinition;
 import net.minecraft.client.model.geom.builders.PartDefinition;
 import net.minecraft.util.Mth;
 import ru.bagomot.kolobok.Kolobok;
+import ru.bagomot.kolobok.entity.Mood;
 
 /**
  * Model «Б»: a Ø10 pixel ball from a core 8×8×8 and three 10×6×6 crossbars, one per axis, which
@@ -17,7 +18,8 @@ import ru.bagomot.kolobok.Kolobok;
  *
  * <p>The face is a flat plate in front of the forward crossbar, one plate per face in the texture
  * atlas; exactly one is visible. It is a child of {@code body}, so it rolls with him. {@code hat} is a
- * sibling of {@code body} rather than a child: the hat must not roll.
+ * sibling of {@code body} rather than a child: the hat leans with him, dancing, singing, scared or
+ * dizzy, but must not roll.
  *
  * <p>Cheeks puff out at the lower corners of the face when he carries something in them, bigger the
  * fuller they are; they take their crust from the core's sides.
@@ -39,12 +41,13 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
     private static final float CENTRE_Y = 24.0F - 5.0F;
     /** How big a cheek is at each puff, 1–3. */
     private static final float[] CHEEK_SCALE = {0.0F, 0.75F, 1.0F, 1.3F};
+    /** How far he sways to his song, radians either way. */
+    private static final float SWAY = 0.08F;
 
     private final ModelPart body;
     private final ModelPart hat;
     private final ModelPart[] faces = new ModelPart[FACES];
-    private final ModelPart cheekLeft;
-    private final ModelPart cheekRight;
+    private final ModelPart[] cheeks;
 
     public KolobokModel(ModelPart root) {
         super(root);
@@ -53,8 +56,7 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
         for (int i = 0; i < FACES; i++) {
             faces[i] = body.getChild("face_" + i);
         }
-        cheekLeft = body.getChild("cheek_left");
-        cheekRight = body.getChild("cheek_right");
+        cheeks = new ModelPart[]{body.getChild("cheek_left"), body.getChild("cheek_right")};
     }
 
     public static LayerDefinition createBodyLayer() {
@@ -99,7 +101,6 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
     @Override
     public void setupAnim(KolobokRenderState state) {
         super.setupAnim(state);
-        body.xRot = state.roll;
         if (state.lapti != null) {
             // Up on his лапти, bobbing a little with each step.
             float speed = Math.min(1.0F, state.walkAnimationSpeed);
@@ -119,22 +120,47 @@ public final class KolobokModel extends EntityModel<KolobokRenderState> {
             body.zScale = xzScale;
             body.y += 5.0F * (1.0F - yScale);
         }
+        // How he leans about his middle, sideways and forwards; the roll comes on top of it.
+        float leanZ = 0.0F;
+        float leanX = 0.0F;
         if (state.dancing) {
             // As a parrot at a jukebox: bobbing to the beat, swaying from side to side.
             body.y -= Math.abs(Mth.sin(state.ageInTicks * 0.6F)) * 1.5F;
-            body.zRot = Mth.sin(state.ageInTicks * 0.3F) * 0.25F;
-            hat.zRot = body.zRot;
+            leanZ += Mth.sin(state.ageInTicks * 0.3F) * 0.25F;
         }
+        if (state.songSway > 0.0F) {
+            // Swaying to his song: over one bar to one side, over the next to the other.
+            leanZ += Mth.sin(state.songEighths * Mth.PI / 4.0F) * SWAY * state.songSway;
+        }
+        if (state.mood == Mood.SCARED) {
+            // A quick small shiver.
+            body.x += Mth.sin(state.ageInTicks * 4.7F) * 0.2F;
+            leanZ += Mth.sin(state.ageInTicks * 6.3F) * 0.03F;
+        } else if (state.mood == Mood.DIZZY) {
+            // Wobbling as a top does before it falls: the lean goes round and round.
+            leanZ += Mth.sin(state.ageInTicks * 0.3F) * 0.1F;
+            leanX += Mth.cos(state.ageInTicks * 0.3F) * 0.1F;
+        }
+        body.zRot = leanZ;
+        body.xRot = leanX + state.roll;
         for (int i = 0; i < FACES; i++) {
             faces[i].visible = i == state.face;
         }
         float cheek = CHEEK_SCALE[Math.clamp(state.cheeks, 0, 3)];
-        for (ModelPart part : new ModelPart[]{cheekLeft, cheekRight}) {
+        for (ModelPart part : cheeks) {
             part.visible = cheek > 0.0F;
             part.xScale = cheek;
             part.yScale = cheek;
             part.zScale = cheek;
         }
-        hat.y = body.y - 5.0F * body.yScale + state.hatLag;
+        // The hat leans with him and stays on the top of his head, wherever the lean took it, but does
+        // not roll.
+        float radius = 5.0F * body.yScale;
+        float up = radius * Mth.cos(leanX);
+        hat.x = body.x + up * Mth.sin(leanZ);
+        hat.y = body.y - up * Mth.cos(leanZ) + state.hatLag;
+        hat.z = body.z - radius * Mth.sin(leanX);
+        hat.xRot = leanX;
+        hat.zRot = leanZ;
     }
 }

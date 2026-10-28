@@ -43,6 +43,11 @@ public final class SongText {
     private static final Template[] MOB_TUNE = {Template.Q3, Template.A3, Template.CLIMB};
     private static final String HEROBRINE_SUNG = "Я и от Херобри'на ушё'л,";
     private static final SongLine FINALE = new SongLine("И от тебя' уйду'!", Template.END, false, "kolobok.song.end");
+    /**
+     * A mob from another mod is sung by at most this many syllables of its id: from the stress to the
+     * end of the line the bar holds eight, and «ушёл» needs one of them.
+     */
+    private static final int MOD_MOB_SYLLABLES = 7;
 
     /**
      * Genitive, stressed, of the vanilla mobs a verse can be about: every mob that may hurt him. A
@@ -274,7 +279,8 @@ public final class SongText {
     }
 
     /**
-     * @return how the mob is named in the song; a mob from another mod sings its id, unstressed
+     * @return how the mob is named in the song; a mob from another mod sings its id, stressed on the
+     *         first syllable
      */
     static String genitive(String id) {
         String known = GENITIVE.get(id);
@@ -282,7 +288,15 @@ public final class SongText {
             return known;
         }
         int colon = id.indexOf(':');
-        return id.substring(colon + 1).replace('_', ' ');
+        String name = id.substring(colon + 1).replace('_', ' ');
+        // Unstressed, the line's only stress would be «ушё'л», and all the rest of it an upbeat that
+        // starts before the line before has ended. On the first syllable the name starts the bar, as
+        // «за'йца» does; a long one is cut short to fit it.
+        if (Phonetics.vowelAt(name, MOD_MOB_SYLLABLES) >= 0) {
+            name = name.substring(0, Phonetics.vowelAt(name, MOD_MOB_SYLLABLES - 1) + 1);
+        }
+        int first = Phonetics.vowelAt(name, 0);
+        return first < 0 ? name : name.substring(0, first + 1) + "'" + name.substring(first + 1);
     }
 
     /**

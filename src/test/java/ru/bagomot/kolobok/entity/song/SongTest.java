@@ -69,19 +69,33 @@ class SongTest {
     void everyLineKeepsTheMetre(int seed, boolean herobrine) {
         for (boolean ornament : new boolean[]{false, true}) {
             List<Melody.Line> lines = Melody.timeline(SongText.lines(seed, MOBS, "minecraft:wolf", herobrine), ornament);
-            double t = 0;
-            for (Melody.Line line : lines) {
-                // The last syllable lands on the strong beat of the second bar.
-                Melody.Note last = line.notes().stream().filter(n -> !n.tie()).reduce((a, b) -> b).orElseThrow();
-                assertEquals(line.downbeat() + 4, last.start(), 1e-9, line.text().sung());
-                for (Melody.Note note : line.notes()) {
-                    assertEquals(t, note.start(), 1e-9, "no gap and no overlap: " + line.text().sung());
-                    assertEquals(0.0, note.length() * 2 % 1, 1e-9, "lengths are whole sixteenths");
-                    assertTrue(note.midi() >= 67 && note.midi() <= 79, "G4–G5: " + note);
-                    t = note.end();
-                }
-            }
+            assertMetre(lines);
             assertEquals("И от тебя' уйду'!", lines.getLast().text().sung());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"othermod:mud_crab", "alexsmobs:crimson_mosquito", "mowziesmobs:ferrous_wroughtnaut",
+            "othermod:enormous_abominable_snow_creature", "othermod:yeti", "othermod:grrr"})
+    void aMobFromAnotherModKeepsTheMetreInEachOfTheThreePlaces(String mob) {
+        for (boolean ornament : new boolean[]{false, true}) {
+            assertMetre(Melody.timeline(SongText.book(List.of(mob, mob, mob)), ornament));
+            assertMetre(Melody.timeline(SongText.lines(5, List.of("minecraft:wolf", mob), null, true), ornament));
+        }
+    }
+
+    @Test
+    void aMobFromAnotherModIsStressedOnItsFirstSyllable() {
+        List<SongLine> book = SongText.book(List.of("othermod:mud_crab", "othermod:yeti",
+                "othermod:enormous_abominable_snow_creature"));
+        assertEquals("йа-о-МУ-ра-бу-ШО", Phonetics.spell(Phonetics.syllables(book.get(8).sung())));
+        assertEquals("йа-о-ЙЭ-ди-у-ШО", Phonetics.spell(Phonetics.syllables(book.get(9).sung())));
+        // Cut to seven syllables, to fit the bar.
+        assertEquals("о-ДЭ-мо-мо-у-са-бо-ми-у-ШО", Phonetics.spell(Phonetics.syllables(book.get(10).sung())));
+        // The upbeat is «Я от» or «От», as with the mobs the song knows.
+        List<Melody.Line> lines = Melody.timeline(book, false);
+        for (Melody.Line line : lines.subList(8, 11)) {
+            assertTrue(line.downbeat() - line.start() <= 2, line.text().sung());
         }
     }
 
@@ -159,7 +173,7 @@ class SongTest {
         List<SongLine> lines = SongText.lines(1, List.of("minecraft:zombie", "othermod:mud_crab"), null, false);
         assertEquals("kolobok.song.from.0", lines.get(8).subtitle());
         assertEquals("kolobok.song.from.unknown", lines.get(9).subtitle());
-        assertEquals("Я от mud crab ушё'л,", lines.get(9).sung());
+        assertEquals("Я от mu'd crab ушё'л,", lines.get(9).sung());
         assertEquals("othermod:mud_crab", lines.get(9).mob());
     }
 
@@ -184,6 +198,25 @@ class SongTest {
         assertEquals(List.of(), SongText.parseVerses(""));
         assertEquals(MOBS, SongText.parseVerses(SongText.joinVerses(MOBS)));
         assertEquals(List.of("minecraft:wolf", "minecraft:rabbit"), SongText.parseVerses("minecraft:wolf,,minecraft:rabbit,minecraft:wolf"));
+    }
+
+    /**
+     * Every line ends on the strong beat of its second bar, each note starts where the one before it
+     * ended, and the tune stays in its sixteenths and its octave.
+     */
+    private static void assertMetre(List<Melody.Line> lines) {
+        double t = 0;
+        for (Melody.Line line : lines) {
+            // The last syllable lands on the strong beat of the second bar.
+            Melody.Note last = line.notes().stream().filter(n -> !n.tie()).reduce((a, b) -> b).orElseThrow();
+            assertEquals(line.downbeat() + 4, last.start(), 1e-9, line.text().sung());
+            for (Melody.Note note : line.notes()) {
+                assertEquals(t, note.start(), 1e-9, "no gap and no overlap: " + line.text().sung());
+                assertEquals(0.0, note.length() * 2 % 1, 1e-9, "lengths are whole sixteenths");
+                assertTrue(note.midi() >= 67 && note.midi() <= 79, "G4–G5: " + note);
+                t = note.end();
+            }
+        }
     }
 
     private static String mobLines(int seed, String newest, boolean herobrine) {

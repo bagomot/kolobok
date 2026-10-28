@@ -105,23 +105,29 @@ public final class GenGuide {
                 write(book.resolve("entries/tale/" + entry.id() + "/pages/" + page + ".json"), json);
             }
         }
-        // Layers top to bottom, rows back to front, columns left to right as you face the furnace:
-        // the chimney brick over the back right corner, the furnace (the centre) in the front row.
+        // Modonomicon reads a dense pattern as pattern[layer][x].charAt(z), the first layer on top: each
+        // string is a line of blocks along z (north to south) at one x (west to east). With the
+        // furnace facing south the front is the last character, the back the first, and the right as
+        // you face the furnace the last string: so the chimney is the first character of the last
+        // string of the top layer.
         write(data.resolve("multiblocks/stove.json"), """
                 {
                   "type": "modonomicon:dense",
                   "pattern": [
                     [
-                      "__B",
-                      "___"
+                      "__",
+                      "__",
+                      "B_"
                     ],
                     [
-                      "BBB",
-                      "BBB"
+                      "BB",
+                      "BB",
+                      "BB"
                     ],
                     [
-                      "BBB",
-                      "B0B"
+                      "BB",
+                      "B0",
+                      "BB"
                     ]
                   ],
                   "mapping": {

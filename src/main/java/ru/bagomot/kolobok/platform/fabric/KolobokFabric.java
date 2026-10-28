@@ -2,10 +2,12 @@ package ru.bagomot.kolobok.platform.fabric;
 
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
+import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.PlayerBlockBreakEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -19,7 +21,8 @@ import ru.bagomot.kolobok.registry.KRegistry;
 
 /**
  * Fabric entry point. Mod initialisers run while the built-in registries are still open, so the
- * catalogues go straight in, in the game's own registry order.
+ * catalogues go straight in, in the order they are declared, each after the ones it refers to (see
+ * {@link KRegistry#all()}).
  */
 public final class KolobokFabric implements ModInitializer {
 
@@ -32,9 +35,15 @@ public final class KolobokFabric implements ModInitializer {
         FabricDefaultAttributeRegistry.register(KEntities.KOLOBOK.get(), KolobokEntity.createAttributes());
         ServerEntityEvents.ENTITY_LOAD.register((entity, level) -> KolobokEvents.onEntityLoad(entity));
         ServerLivingEntityEvents.ALLOW_DAMAGE.register((entity, source, amount) -> KolobokEvents.allowDamage(entity, source));
+        // In creative too, unlike NeoForge's BlockDropsEvent; the handler leaves creative out.
         PlayerBlockBreakEvents.AFTER.register((level, player, pos, state, blockEntity) ->
                 KolobokEvents.onBlockBroken(level, player, pos, state));
-        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> KolobokEvents.onPlayerJoin(handler.player));
+        // Once the player is in the level, as NeoForge's PlayerLoggedInEvent; the connection's JOIN
+        // may come before.
+        ServerPlayerEvents.JOIN.register(KolobokEvents::onPlayerJoin);
+        // Before the levels tick, as NeoForge's ServerTickEvent.Pre.
+        ServerTickEvents.START_SERVER_TICK.register(KolobokEvents::onServerTickStart);
+        ServerLifecycleEvents.SERVER_STOPPED.register(KolobokEvents::onServerStopped);
         UseEntityCallback.EVENT.register((player, level, hand, entity, hit) -> {
             if (hand == InteractionHand.MAIN_HAND) {
                 KolobokEvents.onEntityInteract(player, entity);

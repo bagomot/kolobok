@@ -66,7 +66,7 @@ public final class VersesVisualTest implements FabricClientGameTest {
             server.runCommand("setblock 0 -60 -4 minecraft:furnace[facing=south]");
             server.runCommand("setblock 1 -58 -5 minecraft:bricks");
             server.runCommand(VIEW);
-            server.runOnServer(s -> StovePattern.assemble(s.overworld(), MOUTH));
+            server.runOnServer(s -> StovePattern.assemble(s.overworld(), MOUTH, pos -> true));
             // Without AI he stays in the picture instead of rolling off in a panic when the zombie hits
             // him; verses and freshness are not AI.
             server.runCommand("summon kolobok:kolobok 0.5 -60 0.5 {NoAI:1b,Tags:[\"k\"],Rotation:[0f,0f]}");

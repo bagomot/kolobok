@@ -21,7 +21,6 @@ import net.minecraft.util.ARGB;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.util.LightCoordsUtil;
 import net.minecraft.util.Mth;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.BlockHitResult;
@@ -36,9 +35,9 @@ import ru.bagomot.kolobok.entity.Variant;
 import ru.bagomot.kolobok.item.DoughItem;
 import ru.bagomot.kolobok.registry.KItems;
 
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -93,38 +92,34 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
 
     private final ItemModelResolver items;
     private final KolobokModel model;
+    /**
+     * The raw Kolobok's pose, the same for every stove: the model only reads it, and his crust is a
+     * tint. No face yet: he opens his eyes once he is baked.
+     */
+    private final KolobokRenderState dough = new KolobokRenderState();
 
     public StoveRenderer(BlockEntityRendererProvider.Context context) {
         items = context.itemModelResolver();
         model = new KolobokModel(context.bakeLayer(KolobokModel.LAYER));
+        dough.face = -1;
     }
 
+    /**
+     * Made afresh for every stove drawn, every frame, as vanilla does with block entities: an empty
+     * stove gets nothing but this, the logs and the food only as many pieces as are shown.
+     */
     public static final class State extends BlockEntityRenderState {
         Direction facing = Direction.NORTH;
-        final ItemStackRenderState[] logs = new ItemStackRenderState[LOGS.length];
-        int logPieces;
-        final ItemStackRenderState[] food = new ItemStackRenderState[FOOD.length];
-        int foodPieces;
+        List<ItemStackRenderState> logs = List.of();
+        List<ItemStackRenderState> food = List.of();
         /** The raw Kolobok baking, or {@code null}. */
         @Nullable Variant bread;
         boolean burnt;
         float baked;
-        final KolobokRenderState dough = new KolobokRenderState();
         /** What the part pointed at tells, a line each, where, from the mouth's corner, and how big. */
         List<Component> label = List.of();
         Vec3 labelAt = Vec3.ZERO;
         float labelScale;
-
-        State() {
-            for (int i = 0; i < logs.length; i++) {
-                logs[i] = new ItemStackRenderState();
-            }
-            for (int i = 0; i < food.length; i++) {
-                food[i] = new ItemStackRenderState();
-            }
-            // No face yet: he opens his eyes once he is baked.
-            dough.face = -1;
-        }
     }
 
     @Override
@@ -140,25 +135,30 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
         int seed = (int) stove.getBlockPos().asLong();
 
         ItemStack logs = stove.logs();
-        state.logPieces = logs.isEmpty() ? 0 : Mth.clamp(Mth.ceil(logs.getCount() * LOGS.length / (float) logs.getMaxStackSize()), 1, LOGS.length);
-        for (int i = 0; i < state.logPieces; i++) {
-            items.updateForTopItem(state.logs[i], logs, ItemDisplayContext.FIXED, stove.getLevel(), null, seed + i);
+        if (!logs.isEmpty()) {
+            int pieces = Mth.clamp(Mth.ceil(logs.getCount() * LOGS.length / (float) logs.getMaxStackSize()), 1, LOGS.length);
+            state.logs = pieces(logs, pieces, stove, seed);
         }
 
         ItemStack oven = stove.oven();
-        state.bread = null;
-        state.foodPieces = 0;
         if (oven.is(KItems.RAW_KOLOBOK.get())) {
             state.bread = DoughItem.variant(oven);
             state.burnt = stove.isTooHot();
             state.baked = stove.progress(partialTicks);
         } else if (!oven.isEmpty()) {
-            state.foodPieces = Math.min(oven.getCount(), FOOD.length);
-            for (int i = 0; i < state.foodPieces; i++) {
-                items.updateForTopItem(state.food[i], oven, ItemDisplayContext.FIXED, stove.getLevel(), null, seed + 16 + i);
-            }
+            state.food = pieces(oven, Math.min(oven.getCount(), FOOD.length), stove, seed + 16);
         }
         extractLabel(stove, state, partialTicks, cameraPosition);
+    }
+
+    private List<ItemStackRenderState> pieces(ItemStack stack, int count, StoveBlockEntity stove, int seed) {
+        List<ItemStackRenderState> pieces = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            ItemStackRenderState piece = new ItemStackRenderState();
+            items.updateForTopItem(piece, stack, ItemDisplayContext.FIXED, stove.getLevel(), null, seed + i);
+            pieces.add(piece);
+        }
+        return pieces;
     }
 
     /**
@@ -176,34 +176,19 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
                 && (hit.getLocation().y - mouth.getY()) * 16.0 < StovePattern.GORNILO_FLOOR - 1;
         boolean upper = !lower && (hit.getBlockPos().equals(mouth)
                 || hit.getBlockPos().equals(StovePattern.posOf(mouth, facing, StovePart.UPPER_FRONT_MIDDLE)));
+        Component oven = upper ? stove.ovenLabel(partialTicks) : null;
         if (lower) {
-            ItemStack logs = stove.logs();
-            int max = logs.isEmpty() ? Item.DEFAULT_MAX_STACK_SIZE : logs.getMaxStackSize();
-            Component count = Component.translatable("kolobok.stove.hover.logs", logs.getCount(), max);
-            state.label = stove.isLit()
-                    ? List.of(count, Component.translatable("kolobok.stove.hover.lasts", time(stove.fireLeft(partialTicks))))
-                    : List.of(count);
+            Component fire = stove.fireLabel(partialTicks);
+            state.label = fire != null ? List.of(stove.woodLabel(), fire) : List.of(stove.woodLabel());
             state.labelAt = StovePattern.local(BlockPos.ZERO, facing, 8, LOGS_LABEL_Y, -LABEL_OUT);
-        } else if (upper && !stove.oven().isEmpty()) {
-            if (stove.isCooked()) {
-                state.label = List.of(Component.translatable("kolobok.stove.hover.done"));
-            } else if (stove.isLit()) {
-                state.label = List.of(Component.translatable("kolobok.stove.hover.time", time(stove.cookLeft(partialTicks))));
-            } else {
-                state.label = List.of(Component.translatable("kolobok.stove.hover.waiting"));
-            }
+        } else if (oven != null) {
+            state.label = List.of(oven);
             state.labelAt = StovePattern.local(BlockPos.ZERO, facing, 8, OVEN_LABEL_Y, -LABEL_OUT);
         } else {
             return;
         }
         float distance = (float) cameraPosition.distanceTo(state.labelAt.add(Vec3.atLowerCornerOf(mouth)));
         state.labelScale = LABEL_SCALE * Mth.clamp(distance / LABEL_FULL_SIZE_DISTANCE, 0.3F, 1.0F);
-    }
-
-    /** Ticks as «1:05», minutes and seconds, a second started counting whole. */
-    public static String time(float ticks) {
-        int seconds = Mth.ceil(ticks / 20.0F);
-        return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60);
     }
 
     @Override
@@ -215,23 +200,23 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
         poseStack.translate(-0.5F, 0.0F, -0.5F);
 
         float depth = StovePattern.PODPECHYE_DEPTH - 2.0F;
-        for (int i = 0; i < state.logPieces; i++) {
+        for (int i = 0; i < state.logs.size(); i++) {
             poseStack.pushPose();
             poseStack.translate(LOGS[i][0] / 16.0F, LOGS[i][1] / 16.0F, (1.0F + depth / 2) / 16.0F);
             // The item is an upright half-size block; lying down, its rings face out of the arch.
             poseStack.rotate(Axis.XP.rotationDegrees(90.0F));
             poseStack.scale(LOG_SIZE / 8.0F, depth / 8.0F, LOG_SIZE / 8.0F);
-            state.logs[i].submit(poseStack, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
+            state.logs.get(i).submit(poseStack, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
             poseStack.popPose();
         }
 
-        for (int i = 0; i < state.foodPieces; i++) {
+        for (int i = 0; i < state.food.size(); i++) {
             poseStack.pushPose();
             poseStack.translate(FOOD[i][0] / 16.0F, (StovePattern.GORNILO_FLOOR + 0.3F) / 16.0F, FOOD[i][1] / 16.0F);
             poseStack.rotate(Axis.XP.rotationDegrees(90.0F));
             poseStack.rotate(Axis.ZP.rotationDegrees(i * 67.0F));
             poseStack.scale(0.32F, 0.32F, 0.32F);
-            state.food[i].submit(poseStack, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
+            state.food.get(i).submit(poseStack, collector, state.lightCoords, OverlayTexture.NO_OVERLAY, 0);
             poseStack.popPose();
         }
 
@@ -246,7 +231,7 @@ public final class StoveRenderer implements BlockEntityRenderer<StoveBlockEntity
             poseStack.translate(0.0F, -1.501F, 0.0F);
             int crust = state.burnt ? BURNT_CRUST : CRUST.get(state.bread);
             int tint = ARGB.srgbLerp(state.baked * state.baked, 0xFFFFFFFF, crust);
-            collector.submitModel(model, state.dough, poseStack, model.renderType(DOUGH), state.lightCoords,
+            collector.submitModel(model, dough, poseStack, model.renderType(DOUGH), state.lightCoords,
                     OverlayTexture.NO_OVERLAY, tint, null, 0);
             poseStack.popPose();
         }

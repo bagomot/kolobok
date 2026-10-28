@@ -23,7 +23,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.block.StovePartBlock;
-import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Mood;
@@ -31,10 +30,13 @@ import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Perk;
 import ru.bagomot.kolobok.entity.RideSlot;
 import ru.bagomot.kolobok.entity.Variant;
+import ru.bagomot.kolobok.entity.song.Song;
 
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRenderState, KolobokModel> {
 
@@ -65,6 +67,19 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
     private static final int STALE_TINT = 0xFFC9C3B9;
     private static final int TAN_TINT = 0xFFB89A84;
     private static final int SOGGY_TINT = 0xFFE4E2DA;
+    /** Over the song's last this many seconds his swaying dies down. */
+    private static final double SWAY_FADE_SECONDS = 0.5;
+
+    /**
+     * Each talking Kolobok's bubble, wrapped, by UUID. The renderer is made anew on every resource
+     * reload, so a new language or font wraps afresh.
+     */
+    private final Map<UUID, Bubble> bubbles = new HashMap<>();
+    private final KolobokClient.LevelWatch bubblesLevel = new KolobokClient.LevelWatch();
+
+    /** A line wrapped for the bubble, and its widest row. */
+    private record Bubble(Component text, List<FormattedCharSequence> lines, int width) {
+    }
 
     public KolobokRenderer(EntityRendererProvider.Context context) {
         super(context, new KolobokModel(context.bakeLayer(KolobokModel.LAYER)), 0.3F);
@@ -90,7 +105,10 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         state.squash = Mth.lerp(partialTicks, entity.clientSquashO, entity.clientSquash);
         state.hatLag = Mth.lerp(partialTicks, entity.clientHatLagO, entity.clientHatLag);
         state.sitting = entity.isInSittingPose();
-        state.face = face(entity);
+        Mood mood = entity.getMood();
+        state.mood = mood;
+        state.face = face(entity, mood);
+        extractSong(entity, state, mood, partialTicks);
         state.onPlayer = false;
         state.hidden = false;
 
@@ -110,17 +128,51 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         state.bitten = entity.hasFlag(KolobokEntity.FLAG_BITTEN);
         state.cheeks = entity.cheekPuff();
         state.dancing = entity.clientDancing;
+        extractBubble(entity, state);
+    }
+
+    /**
+     * Singing, he sways to the song's beat, and stops as gently as the song does.
+     */
+    private static void extractSong(KolobokEntity entity, KolobokRenderState state, Mood mood, float partialTicks) {
+        Song song = entity.clientSong;
+        state.songEighths = 0.0F;
+        state.songSway = 0.0F;
+        if (song == null || mood != Mood.SING) {
+            return;
+        }
+        double time = SongPlayer.elapsed(entity, partialTicks);
+        state.songEighths = (float) (time / song.eighthSeconds());
+        state.songSway = (float) Mth.clamp((song.seconds() - time) / SWAY_FADE_SECONDS, 0.0, 1.0);
+    }
+
+    /**
+     * His line, wrapped once when it changes rather than every frame.
+     */
+    private void extractBubble(KolobokEntity entity, KolobokRenderState state) {
+        if (bubblesLevel.changed()) {
+            bubbles.clear();
+        }
         state.bubble = List.of();
+        state.bubbleWidth = 0;
         Component text = entity.clientSongLine != null ? entity.clientSongLine : entity.clientLine;
-        if (text != null && KConfig.client().bubbles()) {
+        if (text == null || !KolobokClient.speaksInBubble(entity)) {
+            bubbles.remove(entity.getUUID());
+            return;
+        }
+        Bubble bubble = bubbles.get(entity.getUUID());
+        if (bubble == null || bubble.text() != text) {
             Font font = getFont();
-            state.bubble = font.split(text, BUBBLE_WIDTH);
+            List<FormattedCharSequence> lines = font.split(text, BUBBLE_WIDTH);
             int width = 0;
-            for (FormattedCharSequence line : state.bubble) {
+            for (FormattedCharSequence line : lines) {
                 width = Math.max(width, font.width(line));
             }
-            state.bubbleWidth = width;
+            bubble = new Bubble(text, lines, width);
+            bubbles.put(entity.getUUID(), bubble);
         }
+        state.bubble = bubble.lines();
+        state.bubbleWidth = bubble.width();
     }
 
     /**
@@ -179,8 +231,7 @@ public final class KolobokRenderer extends MobRenderer<KolobokEntity, KolobokRen
         state.hidden = minecraft.getCameraEntity() == carrier && minecraft.options.getCameraType().isFirstPerson();
     }
 
-    private static int face(KolobokEntity entity) {
-        Mood mood = entity.getMood();
+    private static int face(KolobokEntity entity, Mood mood) {
         boolean eyesOpen = mood != Mood.SLEEP && mood != Mood.GOLOVA_SLEEP && mood != Mood.DIZZY;
         if (eyesOpen && entity.clientBlinkTicks > 0) {
             return KolobokModel.FACE_BLINK;

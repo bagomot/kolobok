@@ -4,6 +4,7 @@ import net.minecraft.client.renderer.entity.state.LivingEntityRenderState;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.FormattedCharSequence;
 import org.jspecify.annotations.Nullable;
+import ru.bagomot.kolobok.entity.Mood;
 import ru.bagomot.kolobok.entity.Outfit;
 import ru.bagomot.kolobok.entity.Variant;
 
@@ -13,6 +14,12 @@ public final class KolobokRenderState extends LivingEntityRenderState {
     public Variant variant = Variant.CLASSIC;
     /** Index of the face plate to show; see {@link KolobokModel}. */
     public int face;
+    /** Scared he trembles, dizzy he wobbles. */
+    public Mood mood = Mood.HAPPY;
+    /** Eighths of his song sung so far: he sways to them. */
+    public float songEighths;
+    /** How far he sways to his song, 0–1: not at all when he is not singing, less as the song ends. */
+    public float songSway;
     /** Rolling angle of the body, radians. */
     public float roll;
     /** Stretched up (above 0) or squashed (below 0) by a jump or a landing. */

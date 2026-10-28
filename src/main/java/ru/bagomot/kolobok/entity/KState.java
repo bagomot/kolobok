@@ -6,7 +6,6 @@ package ru.bagomot.kolobok.entity;
 public enum KState {
     /** Fresh out of the stove, motionless in the горнило until he cools. */
     HOT,
-    COOLING,
     /** Not tamed: rolls away and sings. */
     RUNAWAY,
     FOLLOW,
@@ -14,7 +13,7 @@ public enum KState {
     /** Stands at a spot and keeps watch. */
     GUARD,
     WANDER,
-    /** Lying on the stove after a "death", 5 minutes. */
+    /** Warming up on a warm stove, hurt, until he is whole again. */
     RESTING,
     /** In a fox's mouth. */
     CAUGHT,

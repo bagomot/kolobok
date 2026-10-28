@@ -27,7 +27,7 @@ public enum Perk {
     ENDERMAN("minecraft:enderman"),
     /** «Не та бабка»: a witch's potions do nothing. */
     WITCH("minecraft:witch"),
-    /** «Непотопляемый»: never gets soggy (sogginess arrives with the other states). */
+    /** «Непотопляемый»: never gets soggy in water or rain. */
     DROWNED("minecraft:drowned"),
     /** «Бессонница»: warns an owner who has not slept for three nights. */
     PHANTOM("minecraft:phantom"),

@@ -40,15 +40,18 @@ public final class KConfig {
 
     public static void loadServer(Path configDir) {
         server = load(configDir.resolve(Kolobok.MOD_ID).resolve("server.json"), Server.class, new Server());
-        server.clamp();
     }
 
     public static void loadClient(Path configDir) {
         client = load(configDir.resolve(Kolobok.MOD_ID).resolve("client.json"), Client.class, new Client());
-        client.clamp();
     }
 
-    private static <T> T load(Path file, Class<T> type, T defaults) {
+    /**
+     * Reads the file, brings every value into its range and writes it back. Clamped before writing:
+     * Gson reads NaN and Infinity but refuses to write them, and the game must start whatever the
+     * file says.
+     */
+    private static <T extends Section> T load(Path file, Class<T> type, T defaults) {
         T value = defaults;
         if (Files.exists(file)) {
             try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
@@ -61,19 +64,35 @@ public final class KConfig {
                 return defaults;
             }
         }
+        value.clamp();
         try {
+            // Serialised in full first, so that a failure leaves the old file whole.
+            String json = GSON.toJson(value);
             Files.createDirectories(file.getParent());
             try (Writer writer = Files.newBufferedWriter(file, StandardCharsets.UTF_8)) {
-                GSON.toJson(value, writer);
+                writer.write(json);
             }
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             Kolobok.LOG.warn("Could not write {}", file, e);
         }
         return value;
     }
 
+    /**
+     * @return the value within its range, or the fallback for NaN and the infinities
+     */
+    private static float clamp(float value, float min, float max, float fallback) {
+        return Float.isFinite(value) ? Math.clamp(value, min, max) : fallback;
+    }
+
+    /** One of the two files. */
+    private interface Section {
+        /** Brings every value into its range; the file may say anything. */
+        void clamp();
+    }
+
     /** Rules of the game. Every player on the server shares them. */
-    public static final class Server {
+    public static final class Server implements Section {
         /** Milk tames an untamed Kolobok with a chance of one in this many. */
         public int tameChanceDenominator = 3;
         /** Foxes hunt Kolobki and carry them off, as in the tale. */
@@ -97,7 +116,8 @@ public final class KConfig {
         /** Every player gets the guide, «Как печь Колобка», the first time they join. */
         public boolean guideBook = true;
 
-        void clamp() {
+        @Override
+        public void clamp() {
             tameChanceDenominator = Math.max(1, tameChanceDenominator);
             staleDays = Math.clamp(staleDays, 0, 1000);
             guideSearchChunks = Math.clamp(guideSearchChunks, 1, 100);
@@ -105,7 +125,7 @@ public final class KConfig {
     }
 
     /** How Kolobok talks to this player. */
-    public static final class Client {
+    public static final class Client implements Section {
         /**
          * Share of internet memes, never a measure of rudeness: the humour rules
          * hold on every level. 0 «Сказка», 1 «Мультик», 2 «Интернет», 3 «Всё сразу». A line tagged
@@ -114,17 +134,21 @@ public final class KConfig {
         public int memeLevel = 2;
         /** Idle chatter, from 0 «молчун» to 4 «радио». Lines that answer something always show. */
         public int chattiness = 2;
-        /** Where lines go: "bubbles", "chat" or "both". */
+        /**
+         * Where lines go: "bubbles", "chat" or "both". Only one's own Kolobki write in chat; anyone
+         * else's always talk in bubbles, so that a crowd of them never floods it.
+         */
         public String speech = "bubbles";
         /** Bread crumbs behind one's own Kolobok in the crumbs mode, or showing the way. */
         public boolean crumbs = true;
         /** Multiplies the volume of the voice, 0–1. */
         public float voiceVolume = 1.0F;
 
-        void clamp() {
+        @Override
+        public void clamp() {
             memeLevel = Math.clamp(memeLevel, 0, 3);
             chattiness = Math.clamp(chattiness, 0, 4);
-            voiceVolume = Math.clamp(voiceVolume, 0.0F, 1.0F);
+            voiceVolume = KConfig.clamp(voiceVolume, 0.0F, 1.0F, 1.0F);
             if (!"bubbles".equals(speech) && !"chat".equals(speech) && !"both".equals(speech)) {
                 speech = "bubbles";
             }

@@ -1,6 +1,7 @@
 package ru.bagomot.kolobok.event;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Prediction;
 import net.minecraft.world.damagesource.DamageSource;
@@ -31,7 +32,8 @@ import ru.bagomot.kolobok.item.BindleItem;
 import java.util.List;
 
 /**
- * Common handlers that each loader calls from its own events.
+ * Common handlers that each loader calls from its own events. A spectator sets none of them off:
+ * some loader events come before vanilla's own spectator checks.
  */
 public final class KolobokEvents {
 
@@ -51,11 +53,29 @@ public final class KolobokEvents {
     }
 
     /**
-     * A player joins the server: the first time, they get the guide, «Как печь Колобка», unless the
-     * server config says otherwise.
+     * The start of every server tick, before any level ticks: a Kolobok left behind by the player he
+     * sits on — through a portal, by a teleport — is brought after him while his chunk is still loaded.
+     */
+    public static void onServerTickStart(MinecraftServer server) {
+        KolobokEntity.followCarriers(server);
+    }
+
+    /**
+     * The server has stopped, its levels closed: who carried whom and where the villages were belong
+     * to that world.
+     */
+    public static void onServerStopped(MinecraftServer server) {
+        KolobokEntity.serverStopped();
+        KolobokEntity.forgetVillages();
+    }
+
+    /**
+     * A player joins the server, already in the level: the first time, they get the guide, «Как печь
+     * Колобка», unless the server config says otherwise. A spectator gets it on a later join, out of
+     * spectator mode.
      */
     public static void onPlayerJoin(ServerPlayer player) {
-        if (!KConfig.server().guideBook || player.entityTags().contains(GUIDE_GIVEN)) {
+        if (!KConfig.server().guideBook || player.isSpectator() || player.entityTags().contains(GUIDE_GIVEN)) {
             return;
         }
         player.addTag(GUIDE_GIVEN);
@@ -87,15 +107,17 @@ public final class KolobokEvents {
      * @return whether the damage goes ahead: a Kolobok on a player's head takes a falling anvil's bonk
      */
     public static boolean allowDamage(LivingEntity entity, DamageSource source) {
-        return !KolobokEntity.bonk(entity, source);
+        return entity.isSpectator() || !KolobokEntity.bonk(entity, source);
     }
 
     /**
      * A player used something on an entity: his own dog petted where his Kolobok can see it makes the
-     * Kolobok jealous. Only looks; the interaction goes ahead as it would.
+     * Kolobok jealous. Only looks; the interaction goes ahead as it would. Fabric calls this before
+     * vanilla turns a spectator away, so a spectator is turned away here.
      */
     public static void onEntityInteract(Player player, Entity target) {
-        if (player.level().isClientSide() || !(target instanceof Wolf dog) || !dog.isTame() || !dog.isOwnedBy(player)) {
+        if (player.level().isClientSide() || player.isSpectator() || !(target instanceof Wolf dog) || !dog.isTame()
+                || !dog.isOwnedBy(player)) {
             return;
         }
         for (KolobokEntity kolobok : player.level().getEntitiesOfClass(KolobokEntity.class, dog.getBoundingBox().inflate(JEALOUS_LOOK),
@@ -106,11 +128,12 @@ public final class KolobokEvents {
 
     /**
      * «Тянут-потянут»: a player picks ripe beetroot with his own dog, cat and Kolobok close by, and six
-     * more beetroots come up with it, as the turnip did for the whole family.
+     * more beetroots come up with it, as the turnip did for the whole family. Only for a pick that
+     * drops anything, so never in creative: NeoForge calls this with the drops, Fabric after any break.
      */
     public static void onBlockBroken(Level level, Player player, BlockPos pos, BlockState state) {
-        if (level.isClientSide() || !KConfig.server().repka || !(state.getBlock() instanceof BeetrootBlock crop)
-                || !crop.isMaxAge(state)) {
+        if (level.isClientSide() || player.isSpectator() || player.preventsBlockDrops() || !KConfig.server().repka
+                || !(state.getBlock() instanceof BeetrootBlock crop) || !crop.isMaxAge(state)) {
             return;
         }
         AABB around = new AABB(pos).inflate(REPKA_RANGE);

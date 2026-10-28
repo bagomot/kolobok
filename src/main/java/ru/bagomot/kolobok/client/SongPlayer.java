@@ -17,9 +17,12 @@ import ru.bagomot.kolobok.entity.song.SongLine;
 import ru.bagomot.kolobok.registry.KSounds;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.WeakHashMap;
 
 /**
@@ -33,10 +36,25 @@ public final class SongPlayer {
     /** His voice is gone this far away and at full volume this close. */
     private static final double HEARD_RANGE = 16.0;
     private static final double FULL_RANGE = 2.0;
-    /** A late joiner starts with the note being sung, not with the whole song in one burst. */
+    /**
+     * A late joiner starts with the note being sung, not with the whole song in one burst; after a
+     * frozen frame or a jump in game time the singing goes on the same way.
+     */
     private static final double CATCH_UP_SECONDS = 0.05;
+    /** The newest note due is still sung this late, so that a slow frame never leaves him silent. */
+    private static final double SLOW_FRAME_SECONDS = 0.25;
 
     private static final Set<KolobokEntity> SINGING = Collections.newSetFromMap(new WeakHashMap<>());
+    /**
+     * The subtitle each singer shows, by UUID: made when his line changes rather than every frame.
+     * Only words, nothing that holds a level.
+     */
+    private static final Map<UUID, Subtitle> SUBTITLES = new HashMap<>();
+    private static final KolobokClient.LevelWatch SUBTITLES_LEVEL = new KolobokClient.LevelWatch();
+
+    /** The subtitle of a line, and which song and which of its lines it is. */
+    private record Subtitle(int songStart, int line, Component text) {
+    }
 
     private SongPlayer() {
     }
@@ -71,6 +89,9 @@ public final class SongPlayer {
      * Called once per rendered frame by the loader's frame event.
      */
     public static void frame() {
+        if (SUBTITLES_LEVEL.changed()) {
+            SUBTITLES.clear();
+        }
         Minecraft minecraft = Minecraft.getInstance();
         ClientLevel level = minecraft.level;
         if (level == null || SINGING.isEmpty()) {
@@ -84,22 +105,49 @@ public final class SongPlayer {
             Song song = entity.clientSong;
             if (song == null || entity.isRemoved() || entity.level() != level) {
                 it.remove();
+                SUBTITLES.remove(entity.getUUID());
                 continue;
             }
             double now = elapsed(entity, partialTick);
             List<Song.Sample> samples = song.samples();
-            while (entity.clientSongNext < samples.size() && samples.get(entity.clientSongNext).time() <= now) {
-                play(entity, samples.get(entity.clientSongNext++));
+            int due = entity.clientSongNext;
+            while (due < samples.size() && samples.get(due).time() <= now) {
+                due++;
             }
-            int line = song.lineAt(now);
-            entity.clientSongLine = line >= 0 && now < song.seconds() ? subtitle(song.lines().get(line).text()) : null;
-            if (entity.clientSongNext >= samples.size() && now >= song.seconds()) {
+            // Notes long overdue, after a frozen frame or a jump in game time, are dropped rather than
+            // sung all at once.
+            for (int i = entity.clientSongNext; i < due; i++) {
+                double late = now - samples.get(i).time();
+                if (late <= CATCH_UP_SECONDS || i == due - 1 && late <= SLOW_FRAME_SECONDS) {
+                    play(entity, samples.get(i));
+                }
+            }
+            entity.clientSongNext = due;
+            int line = now < song.seconds() ? song.lineAt(now) : -1;
+            entity.clientSongLine = line >= 0 ? subtitle(entity, song, line) : null;
+            if (due >= samples.size() && now >= song.seconds()) {
                 it.remove();
+                SUBTITLES.remove(entity.getUUID());
             }
         }
     }
 
-    private static double elapsed(KolobokEntity entity, float partialTick) {
+    /**
+     * @return the subtitle of that line of his song, the same object for as long as he sings it
+     */
+    private static Component subtitle(KolobokEntity entity, Song song, int line) {
+        Subtitle shown = SUBTITLES.get(entity.getUUID());
+        if (shown == null || shown.songStart() != entity.clientSongStart || shown.line() != line) {
+            shown = new Subtitle(entity.clientSongStart, line, subtitle(song.lines().get(line).text()));
+            SUBTITLES.put(entity.getUUID(), shown);
+        }
+        return shown.text();
+    }
+
+    /**
+     * @return seconds since his song began
+     */
+    static double elapsed(KolobokEntity entity, float partialTick) {
         return (entity.level().getGameTime() - entity.clientSongStart + partialTick) / 20.0;
     }
 

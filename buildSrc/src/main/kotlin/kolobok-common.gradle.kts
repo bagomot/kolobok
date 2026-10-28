@@ -29,6 +29,14 @@ val modDescription = prop("mod.description")
 val javaVersion = prop("java.version")
 val minecraftRange = prop("deps.minecraft_range")
 val loaderRange = if (loader == "fabric") ">=${prop("deps.fabric_loader")}" else prop("deps.neoforge_range")
+// The lowest version of each mod the manifests accept: the one compiled against, without the
+// "+loader" build suffix. Fabric API is required on Fabric; the integrations are optional on NeoForge.
+fun since(version: String): String = version.substringBefore('+')
+val fabricApiRange = if (loader == "fabric") ">=${since(prop("deps.fabric_api"))}" else ""
+val jeiRange = "[${prop("deps.jei")},)"
+val reiRange = "[${prop("deps.rei")},)"
+val jadeRange = "[${since(prop("deps.jade"))},)"
+val modonomiconRange = "[${prop("deps.modonomicon_version")},)"
 
 group = prop("mod.group")
 version = modVersion
@@ -168,7 +176,12 @@ tasks.named<ProcessResources>("processResources") {
         "mod_version" to modVersion,
         "java_version" to javaVersion,
         "minecraft_range" to minecraftRange,
-        "loader_range" to loaderRange
+        "loader_range" to loaderRange,
+        "fabric_api_range" to fabricApiRange,
+        "jei_range" to jeiRange,
+        "rei_range" to reiRange,
+        "jade_range" to jadeRange,
+        "modonomicon_range" to modonomiconRange
     )
 
     filesMatching(listOf("fabric.mod.json", "META-INF/neoforge.mods.toml")) {

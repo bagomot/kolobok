@@ -27,23 +27,22 @@ import ru.bagomot.kolobok.registry.KRecipes;
 public final class RollDoughRecipe extends TransmuteRecipe {
 
     public static final MapCodec<RollDoughRecipe> MAP_CODEC = RecordCodecBuilder.mapCodec(i -> i.group(
-                    Recipe.CommonInfo.MAP_CODEC.forGetter(r -> r.info),
-                    CraftingRecipe.CraftingBookInfo.MAP_CODEC.forGetter(r -> r.book),
+                    Recipe.CommonInfo.MAP_CODEC.forGetter(r -> r.commonInfo),
+                    CraftingRecipe.CraftingBookInfo.MAP_CODEC.forGetter(r -> r.bookInfo),
                     Ingredient.CODEC.fieldOf("input").forGetter(r -> r.dough),
                     Ingredient.CODEC.fieldOf("material").forGetter(r -> r.pin),
                     TransmuteResult.CODEC.fieldOf("result").forGetter(r -> r.rolled))
             .apply(i, RollDoughRecipe::new));
     public static final StreamCodec<RegistryFriendlyByteBuf, RollDoughRecipe> STREAM_CODEC = StreamCodec.composite(
-            Recipe.CommonInfo.STREAM_CODEC, r -> r.info,
-            CraftingRecipe.CraftingBookInfo.STREAM_CODEC, r -> r.book,
+            Recipe.CommonInfo.STREAM_CODEC, r -> r.commonInfo,
+            CraftingRecipe.CraftingBookInfo.STREAM_CODEC, r -> r.bookInfo,
             Ingredient.CONTENTS_STREAM_CODEC, r -> r.dough,
             Ingredient.CONTENTS_STREAM_CODEC, r -> r.pin,
             TransmuteResult.STREAM_CODEC, r -> r.rolled,
             RollDoughRecipe::new);
 
-    // The parent keeps these to itself; the codecs need them back.
-    private final Recipe.CommonInfo info;
-    private final CraftingRecipe.CraftingBookInfo book;
+    // TransmuteRecipe keeps its input, material and result to itself, and the codecs need them back.
+    // The common and book info are NormalCraftingRecipe's, open to subclasses.
     private final Ingredient dough;
     private final Ingredient pin;
     private final TransmuteResult rolled;
@@ -51,8 +50,6 @@ public final class RollDoughRecipe extends TransmuteRecipe {
     public RollDoughRecipe(Recipe.CommonInfo info, CraftingRecipe.CraftingBookInfo book, Ingredient dough,
                            Ingredient pin, TransmuteResult rolled) {
         super(info, book, dough, pin, MinMaxBounds.Ints.exactly(1), rolled, false);
-        this.info = info;
-        this.book = book;
         this.dough = dough;
         this.pin = pin;
         this.rolled = rolled;

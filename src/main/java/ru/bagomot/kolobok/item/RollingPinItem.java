@@ -1,6 +1,7 @@
 package ru.bagomot.kolobok.item;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -15,6 +16,7 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ToolMaterial;
 import net.minecraft.world.item.component.ItemAttributeModifiers;
 import net.minecraft.world.item.context.UseOnContext;
@@ -25,7 +27,6 @@ import net.minecraft.world.phys.HitResult;
 import ru.bagomot.kolobok.Kolobok;
 import ru.bagomot.kolobok.advancement.Tale;
 import ru.bagomot.kolobok.advancement.TaleTrigger;
-import ru.bagomot.kolobok.block.StovePartBlock;
 import ru.bagomot.kolobok.block.StovePattern;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 
@@ -71,7 +72,8 @@ public class RollingPinItem extends Item {
      */
     @Override
     public InteractionResult use(Level level, Player player, InteractionHand hand) {
-        KolobokEntity kolobok = KolobokEntity.bowlerFor(player);
+        // Vanilla never lets a spectator use an item; nor does the pin, whoever calls it.
+        KolobokEntity kolobok = player.isSpectator() ? null : KolobokEntity.bowlerFor(player);
         if (kolobok == null) {
             return InteractionResult.PASS;
         }
@@ -86,14 +88,16 @@ public class RollingPinItem extends Item {
 
     /**
      * With Shift held, vanilla skips the furnace's own click and comes straight here, so building the
-     * stove needs no event.
+     * stove needs no event. Vanilla has checked that the player may change the furnace's block; the
+     * twelve bricks change too, so each is checked the same way first, and if any may not change,
+     * nothing does.
      */
     @Override
     public InteractionResult useOn(UseOnContext context) {
         Player player = context.getPlayer();
         Level level = context.getLevel();
         BlockPos pos = context.getClickedPos();
-        if (player == null || !player.isSecondaryUseActive() || !level.getBlockState(pos).is(Blocks.FURNACE)) {
+        if (player == null || player.isSpectator() || !player.isSecondaryUseActive() || !level.getBlockState(pos).is(Blocks.FURNACE)) {
             return InteractionResult.PASS;
         }
         if (!(level instanceof ServerLevel serverLevel)) {
@@ -102,8 +106,15 @@ public class RollingPinItem extends Item {
         StovePattern.Check check = StovePattern.check(level, pos);
         switch (check) {
             case OK -> {
-                StovePattern.assemble(serverLevel, pos);
-                AABB box = StovePattern.bounds(pos, level.getBlockState(pos).getValue(StovePartBlock.FACING));
+                Direction face = context.getClickedFace();
+                ItemStack pin = context.getItemInHand();
+                // mayUseItemAt is given the spot in front of the face and checks the block behind it.
+                Direction facing = StovePattern.assemble(serverLevel, pos,
+                        at -> level.mayInteract(player, at) && player.mayUseItemAt(at.relative(face), face, pin));
+                if (facing == null) {
+                    return InteractionResult.FAIL;
+                }
+                AABB box = StovePattern.bounds(pos, facing);
                 serverLevel.sendParticles(ParticleTypes.CLOUD, box.getCenter().x, box.getCenter().y, box.getCenter().z,
                         24, box.getXsize() / 3, box.getYsize() / 3, box.getZsize() / 3, 0.02);
                 level.playSound(null, pos, SoundEvents.VILLAGER_WORK_MASON, SoundSource.BLOCKS, 1.0F, 1.0F);

@@ -4,6 +4,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.Filterable;
 import net.minecraft.stats.Stats;
 import net.minecraft.world.InteractionHand;
@@ -13,6 +14,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.component.WrittenBookContent;
 import net.minecraft.world.level.Level;
+import ru.bagomot.kolobok.ModLang;
 import ru.bagomot.kolobok.entity.KolobokEntity;
 import ru.bagomot.kolobok.entity.Perk;
 import ru.bagomot.kolobok.entity.SongWords;
@@ -57,8 +59,11 @@ public class SongbookItem extends Item {
 
     /**
      * Writes that Kolobok's song into the songbook, replacing whatever was there.
+     *
+     * @param writer who holds the book: the title and the author are plain text, which the client
+     *               does not translate, so they are put in that player's language
      */
-    public static void write(ItemStack stack, KolobokEntity kolobok) {
+    public static void write(ItemStack stack, KolobokEntity kolobok, Player writer) {
         List<Filterable<Component>> pages = new ArrayList<>();
         pages.add(page(cover(kolobok)));
         for (Component page : song(kolobok.verses())) {
@@ -67,7 +72,10 @@ public class SongbookItem extends Item {
         for (Component page : perks(kolobok.perks())) {
             pages.add(page(page));
         }
-        String name = kolobok.getName().getString();
+        // A named Kolobok signs with his name, any other with «Колобок» as the writer reads it.
+        String name = kolobok.getCustomName() != null ? kolobok.getCustomName().getString()
+                : writer instanceof ServerPlayer player ? ModLang.get(player, "entity.kolobok.kolobok")
+                : kolobok.getName().getString();
         String title = name.length() > WrittenBookContent.TITLE_MAX_LENGTH
                 ? name.substring(0, WrittenBookContent.TITLE_MAX_LENGTH)
                 : name;

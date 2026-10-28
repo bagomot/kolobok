@@ -22,7 +22,13 @@ import java.util.function.Supplier;
  */
 public final class KRegistry<T> {
 
-    /** Every catalogue, in the order the game itself registers these registries. */
+    /**
+     * Every catalogue, in the order {@code Kolobok.init} declares them, each after the ones its
+     * entries refer to: blocks before their block entity type, the entity type before its spawn egg.
+     * That is not the game's own registry order, which has entity types before block entity types
+     * and data components after items. Fabric registers in this order; NeoForge registers each
+     * catalogue when its registry's turn comes.
+     */
     static final List<KRegistry<?>> ALL = new ArrayList<>();
 
     private final ResourceKey<? extends Registry<T>> registryKey;

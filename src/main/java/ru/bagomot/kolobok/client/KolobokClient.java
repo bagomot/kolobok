@@ -1,13 +1,14 @@
 package ru.bagomot.kolobok.client;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.particle.Particle;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.locale.Language;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
 import ru.bagomot.kolobok.config.KConfig;
 import ru.bagomot.kolobok.entity.KState;
@@ -16,12 +17,13 @@ import ru.bagomot.kolobok.entity.song.Phonetics;
 import ru.bagomot.kolobok.entity.song.Syllable;
 import ru.bagomot.kolobok.registry.KSounds;
 
+import java.lang.ref.WeakReference;
 import java.nio.file.Path;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.UUID;
 
 /**
  * Client side of Kolobok that is not rendering: rolling, blinking, choosing the line to say and
@@ -38,16 +40,22 @@ public final class KolobokClient {
     /** The Head is this much bigger than he is, and gets there in twenty ticks. */
     private static final float HEAD_SCALE = 1.75F;
     private static final float HEAD_GROWTH = (HEAD_SCALE - 1.0F) / 20.0F;
-    /** Categories that are chatter rather than an answer; the chattiness setting thins them out. */
-    private static final List<String> CHATTER = List.of("idle", "night", "new_moon", "sulk");
-    /** A crumb a block, at most this many per Kolobok, and none spawned out of this range of the camera. */
-    private static final int CRUMBS_MAX = 48;
+    /**
+     * Categories that are chatter rather than an answer; the chattiness setting thins them out. The
+     * Head's sleep-talk comes from the same timer as the idle chatter.
+     */
+    private static final List<String> CHATTER = List.of("idle", "night", "new_moon", "sulk", "golova_dream");
+    /** A crumb a block, and none spawned out of this range of the camera. */
     private static final double CRUMBS_RANGE = 48.0;
     /** He dances while a jukebox plays this close, as a parrot does. */
     private static final double DANCE_RANGE = 3.46;
 
-    /** Each Kolobok's crumbs on the ground, oldest first. */
-    private static final Map<KolobokEntity, ArrayDeque<Particle>> CRUMBS = new WeakHashMap<>();
+    /**
+     * Each Kolobok's crumbs in this level, counted, by UUID: a count rather than the crumbs, which hold
+     * their level. By UUID, so that one who leaves the tracking range and comes back keeps his count.
+     */
+    private static final Map<UUID, CrumbParticle.Trail> TRAILS = new HashMap<>();
+    private static final LevelWatch TRAILS_LEVEL = new LevelWatch();
 
     private KolobokClient() {
     }
@@ -81,6 +89,9 @@ public final class KolobokClient {
      * owner sees them, and only the last 48; the server knows nothing of them.
      */
     private static void crumbs(KolobokEntity entity) {
+        if (TRAILS_LEVEL.changed()) {
+            TRAILS.clear();
+        }
         Minecraft minecraft = Minecraft.getInstance();
         if (!entity.dropsCrumbs() || !KConfig.client().crumbs || minecraft.player == null || !entity.isOwnedBy(minecraft.player)) {
             entity.clientCrumbPath = 0.0F;
@@ -100,14 +111,9 @@ public final class KolobokClient {
             return;
         }
         RandomSource random = entity.getRandom();
-        Particle crumb = new CrumbParticle(minecraft.level, entity.getX() + (random.nextDouble() - 0.5) * 0.3,
-                entity.getY(), entity.getZ() + (random.nextDouble() - 0.5) * 0.3);
-        minecraft.particleEngine.add(crumb);
-        ArrayDeque<Particle> mine = CRUMBS.computeIfAbsent(entity, e -> new ArrayDeque<>());
-        mine.add(crumb);
-        while (mine.size() > CRUMBS_MAX) {
-            mine.poll().remove();
-        }
+        CrumbParticle.Trail trail = TRAILS.computeIfAbsent(entity.getUUID(), uuid -> new CrumbParticle.Trail());
+        minecraft.particleEngine.add(new CrumbParticle(minecraft.level, entity.getX() + (random.nextDouble() - 0.5) * 0.3,
+                entity.getY(), entity.getZ() + (random.nextDouble() - 0.5) * 0.3, trail));
     }
 
     /**
@@ -229,7 +235,7 @@ public final class KolobokClient {
             entity.clientLine = line;
             if (line != null) {
                 startMumble(entity, line.getString());
-                if (KConfig.client().chat()) {
+                if (speaksInChat(entity)) {
                     Minecraft.getInstance().gui.hud.getChat().addClientSystemMessage(
                             Component.translatable("kolobok.say.chat", entity.getDisplayName(), line));
                 }
@@ -237,6 +243,23 @@ public final class KolobokClient {
         } else if (entity.clientLine != null && now >= until) {
             entity.clientLine = null;
         }
+    }
+
+    /**
+     * @return whether his lines go to this player's chat: in the chat modes, and only his owner's, so
+     *         that the Kolobki of a whole server never flood it
+     */
+    static boolean speaksInChat(KolobokEntity entity) {
+        Player player = Minecraft.getInstance().player;
+        return KConfig.client().chat() && player != null && entity.isOwnedBy(player);
+    }
+
+    /**
+     * @return whether his lines show in a bubble over him: always, unless they go to this player's chat
+     *         alone
+     */
+    static boolean speaksInBubble(KolobokEntity entity) {
+        return KConfig.client().bubbles() || !speaksInChat(entity);
     }
 
     /**
@@ -298,5 +321,26 @@ public final class KolobokClient {
      */
     static boolean isMumbling(KolobokEntity entity) {
         return entity.clientMumbleIndex < entity.clientMumble.size();
+    }
+
+    /**
+     * Tells when the client has gone into another level, or out to the menu, without keeping the level
+     * it was in, so that the client's caches by UUID can start afresh. They hold nothing of a level:
+     * noticing late only lets them grow a little longer.
+     */
+    static final class LevelWatch {
+        private WeakReference<ClientLevel> level = new WeakReference<>(null);
+
+        /**
+         * @return whether the client's level is another one than at the last call
+         */
+        boolean changed() {
+            ClientLevel now = Minecraft.getInstance().level;
+            if (level.get() == now) {
+                return false;
+            }
+            level = new WeakReference<>(now);
+            return true;
+        }
     }
 }

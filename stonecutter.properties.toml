@@ -31,6 +31,8 @@ deps.jei = "31.17.0.93"
 deps.rei = "26.3.824"
 deps.cloth_math = "0.6.1"
 deps.architectury = "22.0.5"
+# Modonomicon's own version on both loaders; deps.modonomicon below is the Modrinth id of its file.
+deps.modonomicon_version = "2.17.1"
 
 # ---------------------------------------------------------------- Fabric
 
@@ -51,7 +53,7 @@ deps.modonomicon = "u5mJ3wYn"
 deps.minecraft = "26.3"
 deps.minecraft_range = "[26.3,26.4)"
 deps.neoforge = "26.3.0.85"
-deps.neoforge_range = "[26.3.0,)"
+deps.neoforge_range = "[26.3.0.85,)"
 deps.jade = "26.3.5+neoforge"
 # Modrinth version id of modonomicon-26.3-neoforge-2.17.1, only for trying the book in a dev run.
 deps.modonomicon = "JBJ5eClB"
