@@ -180,7 +180,7 @@
   "kolobok.jade.state.in_stove": "Sitting in the oven",
   "kolobok.hint.stove": "A Russian stove is a furnace and 12 bricks: two layers of 3×2, the furnace in the middle of the bottom front row, bricks everywhere else, plus one brick on top over the back right corner, the chimney. Build it and Shift-click the furnace with the rolling pin. The layout is in the book “How to Bake a Kolobok”: a book and a brick at the crafting table.",
   "kolobok.hint.full_moon": "On a full moon night",
-  "config.jade.plugin_kolobok": "Kolobok",
+  "config.jade.plugin_kolobok": "The Tale of Kolobok",
   "config.jade.plugin_kolobok.stove": "Russian Stove",
   "config.jade.plugin_kolobok.kolobok": "Kolobok",
 

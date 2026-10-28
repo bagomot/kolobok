@@ -41,4 +41,4 @@ jobs:
           prerelease=()
           grep -Eq '^publish\.type = "(beta|alpha)"' stonecutter.properties.toml && prerelease=(--prerelease)
           gh release create "$GITHUB_REF_NAME" versions/*/build/libs/*-"$version".jar \
-            --verify-tag --title "Kolobok $version" --notes-file "$notes" "${prerelease[@]}"
+            --verify-tag --title "The Tale of Kolobok $version" --notes-file "$notes" "${prerelease[@]}"

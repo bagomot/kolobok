@@ -1,6 +1,6 @@
-# Kolobok
+# The Tale of Kolobok
 
-![Kolobok](src/main/resources/assets/kolobok/icon.png)
+![The Tale of Kolobok](src/main/resources/assets/kolobok/icon.png)
 
 A Minecraft mod about Kolobok, the round loaf from the East Slavic fairy tale who rolled away from grandma and grandpa, the hare, the wolf and the bear, singing his song as he went. Here you bake him yourself in a Russian stove, win him over by hearing his song out, and take him along: he rides on your shoulder, sings, jokes, gets into trouble and runs from everyone who wants to eat him. Mind the fox.
 

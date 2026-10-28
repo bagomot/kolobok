@@ -180,7 +180,7 @@
   "kolobok.jade.state.in_stove": "Сидит в горниле",
   "kolobok.hint.stove": "Русская печь — это печка и 12 кирпичей: два слоя 3×2, печка внизу посередине переднего ряда, остальное кирпичи, и ещё кирпич сверху над задним правым углом — труба. Сложите и щёлкните скалкой по печке с Shift. Схема есть в книге «Как печь Колобка»: книга и кирпич на верстаке.",
   "kolobok.hint.full_moon": "Ночью в полнолуние",
-  "config.jade.plugin_kolobok": "Колобок",
+  "config.jade.plugin_kolobok": "Сказка о Колобке",
   "config.jade.plugin_kolobok.stove": "Русская печь",
   "config.jade.plugin_kolobok.kolobok": "Колобок",
 

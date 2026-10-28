@@ -20,7 +20,7 @@ Each release puts two jars, one for NeoForge and one for Fabric, built from the 
    ./gradlew publishMods -PdryRun
    ```
 
-4. Commit, then tag the commit: `git tag -a v1.3.0 -m "Kolobok 1.3.0"`.
+4. Commit, then tag the commit: `git tag -a v1.3.0 -m "The Tale of Kolobok 1.3.0"`.
 5. Push the commit and the tag: `git push origin main v1.3.0`. The Release workflow builds and tests both jars, publishes them to Modrinth and CurseForge and makes a GitHub release with both jars and the changelog section as its notes; with `publish.type` beta or alpha the GitHub release is a pre-release. Publish from one place only: the pushed tag uploads to every platform with a project id, so a version also published from your machine with `./gradlew publishMods` would go up twice.
 
 Before uploading, `publishMods` and the workflow's `checkRelease` build and test both jars and refuse to go on unless HEAD is tagged `v<mod.version>`, the checkout is clean and `CHANGELOG.md` has the version's section.

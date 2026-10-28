@@ -283,7 +283,7 @@ val checkRelease = tasks.register("checkRelease") {
     val version = modVersion
     doLast {
         check("v$version" in tags.get().lines().map { it.trim() }) {
-            "HEAD is not tagged v$version. Tag the release commit first: git tag -a v$version -m \"Kolobok $version\""
+            "HEAD is not tagged v$version. Tag the release commit first: git tag -a v$version -m \"$modName $version\""
         }
         check(status.get().isBlank()) { "The checkout has uncommitted changes; publish from a clean one" }
         changelogFor(version)
