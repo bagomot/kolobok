@@ -485,7 +485,9 @@ public final class SkillsVisualTest implements FabricClientGameTest {
         server.runCommand("setblock 0 -61 0 minecraft:farmland");
         server.runCommand("setblock 0 -60 0 minecraft:beetroots[age=3]");
         server.runCommand("summon minecraft:wolf 2.5 -60 0.5 {Tags:[\"pet\"]}");
-        server.runCommand("summon minecraft:cat -1.5 -60 0.5 {Tags:[\"pet\"]}");
+        // Close enough to the beetroot to pull, too far from Kolobok to lull him to sleep: his cat_nap
+        // line, once a second at a tick of his own, would otherwise take the place of repka.
+        server.runCommand("summon minecraft:cat -3.5 -60 0.5 {Tags:[\"pet\"]}");
         server.runCommand("summon kolobok:kolobok 1.5 -60 1.5 {Tags:[\"k\"]}");
         context.waitTicks(3);
         server.runOnServer(s -> {
