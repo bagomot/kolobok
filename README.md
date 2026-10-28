@@ -1,6 +1,6 @@
 # The Tale of Kolobok
 
-![The Tale of Kolobok](src/main/resources/assets/kolobok/icon.png)
+![The Tale of Kolobok: the giant Head in a helmet among Kolobki in their outfits, the Russian stove smoking behind them](media/logo.png)
 
 A Minecraft mod about Kolobok, the round loaf from the East Slavic fairy tale who rolled away from grandma and grandpa, the hare, the wolf and the bear, singing his song as he went. Here you bake him yourself in a Russian stove, win him over by hearing his song out, and take him along: he rides on your shoulder, sings, jokes, gets into trouble and runs from everyone who wants to eat him. Mind the fox.
 
@@ -27,8 +27,8 @@ For Minecraft 26.3 on NeoForge and Fabric. English and Russian. The source code 
 
 | | |
 |---|---|
-| ![The Russian stove at sunset, a Kolobok baking inside, a cat and a Borodinsky Kolobok on top](media/screenshots/stove.jpg) | ![A tamed Kolobok on the player's shoulder and a golden one on the head](media/screenshots/shoulder.jpg) |
-| The Russian stove | On your shoulder, on your head |
+| ![The Russian stove at sunset, a Kolobok baking inside, a cat and a Borodinsky Kolobok on top](media/screenshots/stove.jpg) | ![A tamed Kolobok on the player's shoulder](media/screenshots/shoulder.jpg) |
+| The Russian stove | On your shoulder |
 | ![Kolobki in a bogatyr's helmet, an ushanka, a crown, a wreath, a kokoshnik and bast shoes](media/screenshots/outfits.jpg) | ![Kolobok singing to a herd of cows](media/screenshots/concert.jpg) |
 | Outfits | A concert |
 | ![Kolobok asleep as the giant Head, with a moustache, in a helmet](media/screenshots/golova.jpg) | ![A fox carrying Kolobok off in its teeth](media/screenshots/fox.jpg) |

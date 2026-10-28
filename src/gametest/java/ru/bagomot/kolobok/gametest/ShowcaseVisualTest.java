@@ -44,7 +44,10 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Not a test but the README's pictures: run with {@code -Pshowcase}, this scene stages the mod at
@@ -55,6 +58,12 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
 
     /** Where the pictures go; set by the build for {@code -Pshowcase} only. */
     private static final String DIR = System.getProperty("kolobok.showcase", "");
+    /**
+     * {@code -Pshowcase=shoulder,banner}: only the pictures named, the others left as they are; all of
+     * them when none is named. The stove is built whenever a picture needs it.
+     */
+    private static final Set<String> ONLY = Arrays.stream(System.getProperty("kolobok.showcase.only", "").split(","))
+            .map(String::trim).filter(name -> !name.isEmpty()).collect(Collectors.toSet());
     private static final int WIDTH = 1280;
     private static final int HEIGHT = 720;
     private static final BlockPos MOUTH = new BlockPos(0, -60, -4);
@@ -79,23 +88,52 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
             meadow(server, AWAY);
             meadow(server, 2 * AWAY);
 
-            stove(context, server, game);
+            boolean jade = FabricLoader.getInstance().isModLoaded("jade") && wanted("jade");
+            if (wanted("stove")) {
+                stove(context, server, game);
+            } else if (wanted("banner") || jade) {
+                buildStove(context, server, game);
+            }
             hud(context, false);
-            family(context, server);
-            outfits(context, server);
-            shoulder(context, server);
-            concert(context, server);
-            theHead(context, server);
-            fox(context, server);
+            if (wanted("family")) {
+                family(context, server);
+            }
+            if (wanted("outfits")) {
+                outfits(context, server);
+            }
+            if (wanted("shoulder")) {
+                shoulder(context, server);
+            }
+            if (wanted("concert")) {
+                concert(context, server);
+            }
+            if (wanted("golova")) {
+                theHead(context, server);
+            }
+            if (wanted("fox")) {
+                fox(context, server);
+            }
             hud(context, true);
-            book(context, server);
-            if (FabricLoader.getInstance().isModLoaded("jade")) {
+            if (wanted("guide")) {
+                book(context, server);
+            }
+            if (jade) {
                 jade(context, server);
             }
-            if (FabricLoader.getInstance().isModLoaded("jei")) {
+            if (FabricLoader.getInstance().isModLoaded("jei") && ONLY.isEmpty()) {
                 JeiScreens.showcase(context);
             }
+            // Last, as it clears the flowers by the stove that the guide and Jade pictures show.
+            if (wanted("banner")) {
+                hud(context, false);
+                banner(context, server);
+            }
         }
+    }
+
+    /** Whether this run takes the picture of that name. */
+    private static boolean wanted(String picture) {
+        return ONLY.isEmpty() || ONLY.contains(picture);
     }
 
     /** Flowers and grass round a clearing at x, so the flat world looks like somewhere. */
@@ -115,8 +153,22 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
         }
     }
 
-    /** The stove, lit, a Kolobok baking in the горнило, a cat and a resting Kolobok on top. */
+    /** The stove, lit, a Kolobok baking in the горнило, a cat and a resting Kolobok on top, at sunset. */
     private static void stove(ClientGameTestContext context, TestServerContext server, TestSingleplayerContext game) {
+        buildStove(context, server, game);
+        // At sunset, when the fire in the горнило shows and the smoke stands against the sky.
+        server.runCommand("time set 12600");
+        server.runCommand("tp @a 4.1 -59.6 0.5 143 6");
+        hud(context, false);
+        context.waitTicks(120);
+        game.getConnection().waitForChunksRender();
+        shot(context, "stove");
+        hud(context, true);
+        server.runCommand("time set 1000");
+    }
+
+    /** Builds the stove with the rolling pin and lights it; a cat and a Borodinsky Kolobok sit on top. */
+    private static void buildStove(ClientGameTestContext context, TestServerContext server, TestSingleplayerContext game) {
         TestInput input = context.getInput();
         server.runCommand("fill -1 -60 -5 1 -59 -4 minecraft:bricks");
         server.runCommand("setblock 0 -60 -4 minecraft:furnace[facing=south]");
@@ -152,20 +204,55 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
         });
         context.waitTicks(3);
         server.runOnServer(s -> tagged(s, "top").setVariant(Variant.BORODINSKY));
-        // At sunset, when the fire in the горнило shows and the smoke stands against the sky.
-        server.runCommand("time set 12600");
-        server.runCommand("tp @a 4.1 -59.6 0.5 143 6");
-        hud(context, false);
-        context.waitTicks(120);
-        game.getConnection().waitForChunksRender();
         boolean lit = server.computeOnServer(s -> s.overworld().getBlockEntity(MOUTH)
                 instanceof ru.bagomot.kolobok.block.StoveBlockEntity stove && stove.isLit());
         if (!lit) {
             throw new AssertionError("The showcase stove is not lit");
         }
-        shot(context, "stove");
-        hud(context, true);
-        server.runCommand("time set 1000");
+    }
+
+    /**
+     * Under the logo (tools/logo): the Head, as big as he dreams himself, in the middle of a row of
+     * Kolobki in their outfits, three on each side, and the stove smoking behind them. The sky over
+     * them is left for the title.
+     */
+    private static void banner(ClientGameTestContext context, TestServerContext server) {
+        // The row's middle, off the stove's to the right, so that the stove shows over the left three.
+        double x = 3.0;
+        // No flowers in the row, before it or just behind it; the stove's own blocks start further back.
+        server.runCommand("fill " + (int) (x - 7) + " -60 -3 " + (int) (x + 7) + " -60 6 minecraft:air");
+        List<ItemStack> heads = outfitHeads();
+        List<ItemStack> feet = outfitFeet();
+        double[] sides = {-3.6, -2.5, -1.4, 1.4, 2.5, 3.6};
+        for (int i = 0; i < sides.length; i++) {
+            server.runCommand("summon kolobok:kolobok " + (x + sides[i]) + " -60 0.5 {NoAI:1b,Rotation:[0f,0f],Tags:[\"o" + i + "\"]}");
+        }
+        server.runCommand("summon kolobok:kolobok " + x + " -60 0.5 {Tags:[\"golova\"],Rotation:[0f,0f]}");
+        context.waitTicks(3);
+        server.runOnServer(s -> {
+            for (int i = 0; i < heads.size(); i++) {
+                KolobokEntity k = tagged(s, "o" + i);
+                k.setItemSlot(EquipmentSlot.HEAD, heads.get(i).copy());
+                k.setItemSlot(EquipmentSlot.FEET, feet.get(i).copy());
+                k.setFlag(KolobokEntity.FLAG_GLASSES, i == 0 || i == 5);
+            }
+            KolobokEntity golova = tagged(s, "golova");
+            golova.tame(player(s));
+            golova.setKState(KState.SIT);
+            golova.setItemSlot(EquipmentSlot.HEAD, new ItemStack(Items.IRON_HELMET));
+            if (!golova.startHeadAct(s.overworld())) {
+                throw new AssertionError("He did not become the Head");
+            }
+            // The camera hangs in the air where it is put.
+            ServerPlayer player = player(s);
+            player.getAbilities().flying = true;
+            player.onUpdateAbilities();
+        });
+        server.runCommand("tp @a " + x + " -59.4 4.6 180 14");
+        // He grows into the Head over a second or two.
+        context.waitTicks(60);
+        shot(context, "banner");
+        clear(server);
     }
 
     /** Every dough in a row: wheat, Borodinsky rye, golden, lunar and the little Kolobochek. */
@@ -190,11 +277,8 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
     /** Helmets, his own hats, лапти and sunglasses. */
     private static void outfits(ClientGameTestContext context, TestServerContext server) {
         int x = AWAY;
-        List<ItemStack> heads = List.of(new ItemStack(Items.IRON_HELMET), dyed(Items.LEATHER_HELMET, 0x3B6FD8),
-                new ItemStack(KItems.CROWN.get()), new ItemStack(KItems.WREATH.get()), new ItemStack(KItems.KOKOSHNIK.get()),
-                new ItemStack(Items.GOLDEN_HELMET));
-        List<ItemStack> feet = List.of(ItemStack.EMPTY, new ItemStack(Items.LEATHER_BOOTS), new ItemStack(Items.GOLDEN_BOOTS),
-                ItemStack.EMPTY, dyed(Items.LEATHER_BOOTS, 0xC03030), new ItemStack(Items.IRON_BOOTS));
+        List<ItemStack> heads = outfitHeads();
+        List<ItemStack> feet = outfitFeet();
         for (int i = 0; i < heads.size(); i++) {
             server.runCommand("summon kolobok:kolobok " + (x + 0.5 - 2.5 * 1.1 + i * 1.1) + " -60 0.5 {NoAI:1b,Rotation:[0f,0f],Tags:[\"o" + i + "\"]}");
         }
@@ -213,36 +297,27 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
         clear(server);
     }
 
-    /** The player, seen from the front, with one Kolobok on the shoulder and another on the head. */
+    /** The player, seen from the front, with a Kolobok on the shoulder: one at a time, as the mod allows. */
     private static void shoulder(ClientGameTestContext context, TestServerContext server) {
         int x = AWAY;
         server.runCommand("tp @a " + (x + 0.5) + " -60 0.5 0 0");
-        server.runCommand("summon kolobok:kolobok " + (x + 1.5) + " -60 1.5 {Tags:[\"head\"]}");
         server.runCommand("summon kolobok:kolobok " + (x - 0.5) + " -60 1.5 {Tags:[\"shoulder\"]}");
         context.waitTicks(3);
         server.runOnServer(s -> {
             ServerPlayer player = player(s);
-            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(KItems.ROLLING_PIN.get()));
-            KolobokEntity head = tagged(s, "head");
             KolobokEntity shoulder = tagged(s, "shoulder");
-            head.tame(player);
             shoulder.tame(player);
-            head.setVariant(Variant.GOLDEN);
             player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
-            ItemStack pin = player.getMainHandItem();
             player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
             player.setShiftKeyDown(true);
-            head.mobInteract(player, InteractionHand.MAIN_HAND);
-            head.mobInteract(player, InteractionHand.MAIN_HAND);
             shoulder.mobInteract(player, InteractionHand.MAIN_HAND);
             player.setShiftKeyDown(false);
-            player.setItemInHand(InteractionHand.MAIN_HAND, pin);
+            player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(KItems.ROLLING_PIN.get()));
         });
         context.waitTicks(20);
-        boolean seated = server.computeOnServer(s -> tagged(s, "head").getKState() == KState.ON_PLAYER
-                && tagged(s, "shoulder").getKState() == KState.ON_PLAYER);
+        boolean seated = server.computeOnServer(s -> tagged(s, "shoulder").getKState() == KState.ON_PLAYER);
         if (!seated) {
-            throw new AssertionError("They did not get on the player");
+            throw new AssertionError("He did not get on the player");
         }
         context.runOnClient(mc -> mc.options.setCameraType(CameraType.THIRD_PERSON_FRONT));
         context.waitTicks(10);
@@ -375,6 +450,19 @@ public final class ShowcaseVisualTest implements FabricClientGameTest {
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** What the six dressed Kolobki wear on their heads, left to right, sunglasses on the outer two... */
+    private static List<ItemStack> outfitHeads() {
+        return List.of(new ItemStack(Items.IRON_HELMET), dyed(Items.LEATHER_HELMET, 0x3B6FD8),
+                new ItemStack(KItems.CROWN.get()), new ItemStack(KItems.WREATH.get()), new ItemStack(KItems.KOKOSHNIK.get()),
+                new ItemStack(Items.GOLDEN_HELMET));
+    }
+
+    /** ...and on their feet. */
+    private static List<ItemStack> outfitFeet() {
+        return List.of(ItemStack.EMPTY, new ItemStack(Items.LEATHER_BOOTS), new ItemStack(Items.GOLDEN_BOOTS),
+                ItemStack.EMPTY, dyed(Items.LEATHER_BOOTS, 0xC03030), new ItemStack(Items.IRON_BOOTS));
     }
 
     private static ItemStack dyed(Item item, int colour) {

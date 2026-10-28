@@ -59,9 +59,11 @@ fabricApi {
     }
 }
 
-// `-Pshowcase` also stages the README's screenshots (ShowcaseVisualTest) into media/screenshots.
+// `-Pshowcase` also stages the README's screenshots (ShowcaseVisualTest) into media/screenshots;
+// `-Pshowcase=banner` only the picture under the logo.
 if (providers.gradleProperty("showcase").isPresent) {
     tasks.named<JavaExec>("runClientGameTest") {
         systemProperty("kolobok.showcase", rootProject.file("media/screenshots").absolutePath)
+        systemProperty("kolobok.showcase.only", providers.gradleProperty("showcase").get())
     }
 }
